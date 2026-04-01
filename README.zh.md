@@ -153,9 +153,13 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 
 **价值**：把“一个模型单线程回答”升级为“多角色协作解题”。
 
+<img width="2549" height="1728" alt="Screenshot - 2026-04-01 13 00 35" src="https://github.com/user-attachments/assets/d8115e02-fcdc-4781-8d42-41d0732200d0" />
+
 ### 3) clawteam deeploop：收敛式闭环迭代
 
 `/clawteam --deep_loop` 支持多轮收敛协作，不是“跑一轮就结束”。
+
+<img width="1938" height="380" alt="Screenshot - 2026-03-30 18 39 08" src="https://github.com/user-attachments/assets/656adcf5-0cb0-457b-b990-c09a54837920" />
 
 - 每轮按结构化契约输出（目标、交接结果、gap 等）
 - 支持自动解析 `DEEP_LOOP_WRITEBACK_JSON` 并执行回写
