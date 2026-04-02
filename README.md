@@ -2,7 +2,7 @@
 
 **Creative dev tool / AI engineering Swiss Army knife (terminal-native)**  
 
-Turn **idea → plan → code → verify → review → learned experience** into one executable, learnable, evolving engineering loop.
+Turn **idea → memory → plan → code → verify → review → learned experience** into one executable, learnable, evolving engineering loop.
 
 <img width="2549" height="930" alt="ClawCode screenshot" src="https://github.com/user-attachments/assets/6cc0814a-aa3e-4f56-98dc-5123ecf88a1c" />
 
@@ -300,6 +300,7 @@ flowchart TD
 ## Alignment with Claude Code (workflow migration)
 
 To lower learning and migration cost, ClawCode offers **alignable** workflows where it matters.
+<img width="1937" height="319" alt="Screenshot - 2026-03-26 00 27 15" src="https://github.com/user-attachments/assets/1a9adf68-bd07-4d0b-aa9b-20896c6fedc7" />
 
 - If you want **polished product UX out of the box**, Claude Code has strengths.
 - If you want **deep terminal execution + team orchestration + learning loops + configurable extensions**, ClawCode emphasizes that combination.
