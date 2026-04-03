@@ -175,38 +175,16 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 
 **价值**：让复杂任务从“主观感觉完成”变成“指标驱动收敛完成”。
 
-### 4) 闭环学习与自进化：Experience / ECAP / TECAP
+### 4) ECAP闭环学习与自进化：
 
 ClawCode 将“经验”作为第一等公民，并提出ECAP（“经验胶囊”）概念，不只存结论，更存可迁移的经验结构：
+<img width="2730" height="1535" alt="ECAP技术示例" src="https://github.com/user-attachments/assets/099277b5-4d02-4669-9cc0-260efc8bc79b" />
 
 - **Experience**：表示为目标与结果间gap的经验函数，从“目标与结果 gap 的解决过程”中抽取的可学习函数，并用目标与结果间的 gap 作为改进驱动，维度经验对象分别包括：model_experience、agent_experience、skill_experience、team_experience。
-  **作用范围：**
-  - experience -> instinct（经验反哺本能）
-  - experience -> routing（模型/agent/skill/team 选择）
-  - experience -> tuning（闭环调优与 canary 绑定）
-    
-- **ECAP**（Experience Capsule）：个人/任务级经验胶囊，表示可演化的三元组知识结构：(instinct, experience, skill)
+- **ECAP**（Experience Capsule）：个人/任务级经验胶囊，表示可演化的三元组知识结构：(Instinct, Experience, Skill)
 - **TECAP**（Team Experience Capsule）：团队协作经验胶囊，包括协作步骤/拓扑/交接，并为每个团队角色关联一个角色级 ECAP 三元组
-- **instinct-experience-skill**：从规则、经验到技能的可复用构建链路
-  
-  **继承/学习/应用机制（I/E/S 三维）:**
-  
-  **instinct：**
-  - 继承：按域、来源与置信阈值进行继承。
-  - 学习：通过观测聚类与反馈调整 confidence。
-  - 应用：在 prompt/context 中注入触发条件与禁忌。
-    
-  **experience：**
-  - 继承：沿用同类任务的 gap 函数初始参数。
-  - 学习：每轮以目标-结果差更新参数与权重。
-  - 应用：在决策前提供策略排序（先做什么、验证什么）。
-    
-  **skill：**
-  - 继承：角色绑定默认 skill 集。
-  - 学习：闭环 evolve/import 后升级 skill 版本并回写引用。
-  - 应用：执行期依据 invocation_profile 选择技能与参数模板。
-    
-- **model-agent-team:** 从模型、Agent到Agent团队协作的可复用学习路径
+- **Instinct -> Experience -> Skill**：从（本能）规则、经验到技能的可复用构建链路
+- **Model -> Agent -> Team:** 从模型、Agent到Agent团队协作的可复用学习路径
 #### 技术实现映射（从概念到落地）
 
 | 能力对象 | 技术实现要点 | 关键命令 / 接口 | 数据与存储 | 文档 |
