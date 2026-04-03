@@ -130,13 +130,13 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 ### 2) clawteam 智能团队模式：像一个可调度的虚拟研发团队
 
 通过 `/clawteam`，系统可针对任务自动进行角色编排与执行组织：
-
+- 专业角色细分与多年行业经验思维模型提取
 - 智能角色选择与任务分配
 - 串行/并行流程规划
 - 分角色输出与最终集成
 - 支持 10+ 专业角色（产品、架构、后端、前端、QA、SRE 等）
 
-#### clawteam 智能团队成员（角色一览）
+#### clawteam 智能团队成员（专业角色一览）
 
 | 角色 ID | 中文角色 | 职责与典型产出 |
 | --- | --- | --- |
@@ -163,6 +163,8 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 
 ### 3) clawteam deeploop：收敛式闭环迭代
 
+模拟项目真实团队迭代开发过程，支持团队深度开发（这一部分功能仍需完善）。
+
 `/clawteam --deep_loop` 支持多轮收敛协作，不是“跑一轮就结束”。
 
 <img width="1938" height="380" alt="Screenshot - 2026-03-30 18 39 08" src="https://github.com/user-attachments/assets/656adcf5-0cb0-457b-b990-c09a54837920" />
@@ -175,13 +177,36 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 
 ### 4) 闭环学习与自进化：Experience / ECAP / TECAP
 
-ClawCode 将“经验”作为第一等公民，不只存结论，更存可迁移的经验结构：
+ClawCode 将“经验”作为第一等公民，并提出ECAP（“经验胶囊”）概念，不只存结论，更存可迁移的经验结构：
 
-- **Experience**：表示为目标与结果间gap的经验函数，用目标与结果间的 gap 作为改进驱动
-- **ECAP**（Experience Capsule）：个人/任务级经验胶囊
-- **TECAP**（Team Experience Capsule）：团队协作经验胶囊
+- **Experience**：表示为目标与结果间gap的经验函数，从“目标与结果 gap 的解决过程”中抽取的可学习函数，并用目标与结果间的 gap 作为改进驱动，维度经验对象分别包括：model_experience、agent_experience、skill_experience、team_experience。
+  **作用范围：**
+  - experience -> instinct（经验反哺本能）
+  - experience -> routing（模型/agent/skill/team 选择）
+  - experience -> tuning（闭环调优与 canary 绑定）
+    
+- **ECAP**（Experience Capsule）：个人/任务级经验胶囊，表示可演化的三元组知识结构：(instinct, experience, skill)
+- **TECAP**（Team Experience Capsule）：团队协作经验胶囊，包括协作步骤/拓扑/交接，并为每个团队角色关联一个角色级 ECAP 三元组
 - **instinct-experience-skill**：从规则、经验到技能的可复用构建链路
-
+  
+  **继承/学习/应用机制（I/E/S 三维）:**
+  
+  **instinct：**
+  - 继承：按域、来源与置信阈值进行继承。
+  - 学习：通过观测聚类与反馈调整 confidence。
+  - 应用：在 prompt/context 中注入触发条件与禁忌。
+    
+  **experience：**
+  - 继承：沿用同类任务的 gap 函数初始参数。
+  - 学习：每轮以目标-结果差更新参数与权重。
+  - 应用：在决策前提供策略排序（先做什么、验证什么）。
+    
+  **skill：**
+  - 继承：角色绑定默认 skill 集。
+  - 学习：闭环 evolve/import 后升级 skill 版本并回写引用。
+  - 应用：执行期依据 invocation_profile 选择技能与参数模板。
+    
+- **model-agent-team:** 从模型、Agent到Agent团队协作的可复用学习路径
 #### 技术实现映射（从概念到落地）
 
 | 能力对象 | 技术实现要点 | 关键命令 / 接口 | 数据与存储 | 文档 |
@@ -311,6 +336,7 @@ flowchart TD
 ## 与 Claude Code 的能力对齐（习惯迁移友好）
 
 为降低学习与迁移门槛，ClawCode 在关键工作流上提供“可对齐”的使用体验。
+【vs claude code "/command" 对齐说明】
 <img width="1937" height="319" alt="Screenshot - 2026-03-26 00 27 15" src="https://github.com/user-attachments/assets/25ad9305-5a27-4d3f-b708-022fb9cea3c6" />
 
 - 若偏好“成熟产品体验 + 即开即用”：Claude Code 有其优势。  
