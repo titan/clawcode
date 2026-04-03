@@ -1,8 +1,8 @@
 # ClawCode
 
-**Creative dev tool / AI engineering Swiss Army knife (terminal-native)**  
+ClawCode is claude code inspired implementation in python and Rust focused on agents and experience-based evolution, and is an Open-source coding-agent CLI for Anthropic, OpenAI, Gemini, DeepSeek, GLM, Kimit, Ollama, Codex, GitHub Models, and 200+ models via OpenAI-compatible APIs.
 
-Turn **idea → memory → plan → code → verify → review → learned experience** into one executable, learnable, evolving engineering loop.
+We hope to make it an open and excellent creative development tool, a useful AI programming Swiss Army knife in your hands，and on the basis of the coder agent framework, we introduce an algorithm module based on experience driven autonomous reinforcement learning: Turn **idea → memory → plan → code → verify → review → learned experience** into one executable, learnable, evolving engineering loop.
 
 <img width="2549" height="930" alt="ClawCode screenshot" src="https://github.com/user-attachments/assets/6cc0814a-aa3e-4f56-98dc-5123ecf88a1c" />
 
