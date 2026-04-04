@@ -90,17 +90,139 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
   Beyond one-off codegen: planning, delegation, execution, verification, review, and structured learning.
 
 ### Development assistance functions
+## Multi-role orchestration & engineering workflows
 
+| Command | Function |
+|--------|----------|
+| `/clawteam` | Run multi-role task orchestration, or target one role via `/clawteam:<agent>`. Supports `--deep_loop` for iterative convergence (see `docs/CLAWTEAM_SLASH_GUIDE.md`). |
+| `/clawteam-deeploop-finalize` | Parse `DEEP_LOOP_WRITEBACK_JSON` from pasted or last assistant text using pending deep-loop session metadata. |
+| `/multi-plan` | Run multi-model collaborative planning workflow (plan-only). |
+| `/multi-execute` | Run multi-model collaborative execution workflow with traceable artifacts. |
+| `/multi-backend` | Run backend-focused multi-model workflow (research through review, orchestrator writes code). |
+| `/multi-frontend` | Run frontend-focused multi-model workflow (UI/UX led, orchestrator writes code). |
+| `/multi-workflow` | Run full-stack multi-model workflow (backend + UI advisors, orchestrator writes code). |
+| `/orchestrate` | Run sequential multi-role workflow (HANDOFF between planner/TDD/review/security/architect); `/orchestrate show\|list`. |
+
+## Architecture & review
+
+| Command | Function |
+|--------|----------|
+| `/architect` | Run architecture design/review workflow with trade-off analysis and ADR/checklist options. |
+| `/code-review` | Review local uncommitted changes with severity-ranked findings and commit gate. |
+| `/security-review` | Complete a security review of the pending changes on the current branch. |
+| `/review` | Review a pull request. |
+
+## Test-driven development
+
+| Command | Function |
+|--------|----------|
+| `/tdd` | Run strict TDD workflow: scaffold, RED, GREEN, refactor, and coverage gate. |
+
+## Learning loop: ECAP, TECAP & instincts
+
+| Command | Function |
+|--------|----------|
+| `/learn` | Learn reusable instincts from recent tool observations. |
+| `/learn-orchestrate` | Run observe → evolve → import-to-skill-store orchestration in one command. |
+| `/experience-create` | Create an ECAP experience capsule from recent observations/instincts. |
+| `/experience-status` | List available ECAP capsules with optional filters. |
+| `/experience-export` | Export an ECAP capsule as JSON/Markdown for model or human use. |
+| `/experience-import` | Import an ECAP capsule from local file or URL. |
+| `/experience-apply` | Apply an ECAP capsule as one-shot agent prompt context. |
+| `/experience-feedback` | Record success/failure feedback score for an ECAP capsule. |
+| `/team-experience-create` | Create a TECAP team-experience capsule from collaborative traces. |
+| `/team-experience-status` | List TECAP capsules with optional team/problem filters. |
+| `/team-experience-export` | Export a TECAP capsule as JSON/Markdown for agents and humans. |
+| `/team-experience-import` | Import a TECAP capsule from local file or URL. |
+| `/team-experience-apply` | Apply a TECAP capsule as collaboration context prompt. |
+| `/team-experience-feedback` | Record feedback score for a TECAP capsule. |
+| `/tecap-create` | Alias of `/team-experience-create`. |
+| `/tecap-status` | Alias of `/team-experience-status`. |
+| `/tecap-export` | Alias of `/team-experience-export`. |
+| `/tecap-import` | Alias of `/team-experience-import`. |
+| `/tecap-apply` | Alias of `/team-experience-apply`. |
+| `/tecap-feedback` | Alias of `/team-experience-feedback`. |
+| `/instinct-status` | Show learned instincts grouped by domain and confidence. |
+| `/instinct-import` | Import instincts from local file or URL into inherited set. |
+| `/instinct-export` | Export instincts with optional domain/confidence filters. |
+| `/evolve` | Cluster instincts and optionally generate evolved structures. |
+| `/experience-dashboard` | Show ECAP-first experience metrics dashboard (add `--json` or `--no-alerts`). |
+| `/closed-loop-contract` | Show closed-loop config contract coverage (consumed vs unconsumed keys). |
+
+## Observability, diagnostics & diffs
+
+| Command | Function |
+|--------|----------|
+| `/doctor` | Diagnose and verify your clawcode installation and settings. |
+| `/diff` | View uncommitted changes and per-turn diffs. |
+| `/debug` | Debug your current clawcode session via logs (bundled viewer). |
+| `/insights` | Generate a report analyzing your clawcode sessions. |
+
+## Claw mode & external CLIs
+
+| Command | Function |
+|--------|----------|
+| `/claw` | Enable Claw agent mode or show status (autocomplete entry; see `SLASH_AUTOCOMPLETE_EXTRA` in `builtin_slash.py`). |
+| `/claude` | Enable Claw mode then path A: Anthropic + Claude Code HTTP identity. |
+| `/claude-cli` | Enable Claw mode then path B: run claude / claude-code CLI in workspace. |
+| `/opencode-cli` | Enable Claw mode then path B′: run OpenCode opencode CLI in workspace. |
+| `/codex-cli` | Enable Claw mode then path B″: run OpenAI Codex CLI in workspace. |
+
+## Session, Git, workspace & engineering context
+
+| Command | Function |
+|--------|----------|
+| `/checkpoint` | Git workflow checkpoints: `create`, `verify`, `list`, `clear`. |
+| `/rewind` | Soft-archive chat after a message, or inspect/restore tracked git files. |
+| `/tasks` | List and manage background tasks (plan build, agent run). |
+| `/init` | Initialize CLAWCODE.md (or CLAW.md-style) codebase documentation in the project. |
+| `/add-dir` | Add a new working directory. |
+| `/agents` | Manage agent configurations. |
+| `/skills` | List available skills. |
+| `/mcp` | Manage MCP servers. |
+| `/hooks` | Manage hook configurations for tool events. |
+| `/permissions` | Manage allow & deny tool permission rules. |
+| `/memory` | Edit claw memory files. |
+| `/pr-comments` | Get comments from a GitHub pull request. |
+
+## Autocomplete / related planning & plugins
+
+| Command | Function |
+|--------|----------|
+| `/plan` | Enable plan mode or view the current session plan (handled in ChatScreen; listed for autocomplete). |
+| `/arc-plan` | Generate a one-shot alternative implementation plan (ARC planner). |
+| `/plugin` | Manage clawcode plugins. |
+
+## Compatible with Claude Code (plugins & skills)
+
+To lower learning and migration cost, ClawCode offers **alignable** workflows where it matters.
+
+<img width="1937" height="319" alt="Screenshot - 2026-03-26 00 27 15" src="https://github.com/user-attachments/assets/1a9adf68-bd07-4d0b-aa9b-20896c6fedc7" />
+
+- If you want **polished product UX out of the box**, Claude Code has strengths.
+- If you want **deep terminal execution + team orchestration + learning loops + configurable extensions**, ClawCode emphasizes that combination.
+
+ClawCode is not trying to replace every tool. It uses **alignment as a migration layer** and **closed-loop engineering evolution** as the core value layer.
+
+| Alignment | What it means | Extra value in ClawCode |
+|---|---|---|
+| Slash workflows | Organize work with `/` commands (e.g. `/clawteam`, `/clawteam --deep_loop`) | Goes from “command fired” to **multi-role orchestration + convergence + write-back** |
+| Skills | Reuse and extend skills; lower asset migration cost | Skills can plug into **experience loops** and improve per project |
+| Terminal-native | TUI/CLI habits and scripting | Analyze, execute, verify, and review **in one surface** |
+| Extensible tools | plugin / MCP / computer use | Progressive capability expansion under team policy |
+
+## Compatible with Claude Code (CLAUDE.md & Subagent)
+---
 ### Full-stack task execution stack (AI Coding + Claw framework + tools + computer use)
 
 “Full-stack” tasks are not a single codegen step—they chain **planning, coding, verification, review, environment actions, and learning** into one executable path. ClawCode implements three layers:
 
-| Layer | Role | Key components / commands | Typical tasks | Entry points |
-|---|---|---|---|---|
-| Coder agent (default terminal runtime)	| The default interactive path: Textual TUI wires sessions/messages, builds a coder runtime bundle from settings, and runs the main Agent loop (or ClawAgent.run_claw_turn when Claw mode is on). It owns send/finalize, HUD, plan state, and optional memory injection—without requiring /claw or workflow slash commands.|ChatScreen, _finalize_send_after_input, _start_agent_run, _process_message, build_coder_runtime, make_claw_agent / make_plain_agent, Agent.run, ClawAgent.run_claw_turn, _handle_agent_event, _rebuild_llm_stack|Everyday coding in the terminal: chat turns, file edits via tools, plan-style flows when /plan is active, model switch (e.g. Ctrl+O stack rebuild), non-Claw and Claw branches from the same screen|clawcode/tui/screens/chat.py, clawcode/llm/runtime_bundle.py, clawcode/llm/agent.py, clawcode/cli/commands.py (create_app, run_tui)|
-| Claw framework (agent runtime) | In Claw mode, `ClawAgent` runs multi-step work aligned with the main agent loop, with iteration budget and sub-agent coordination | `/claw`, `ClawAgent.run_claw_turn`, `run_agent` / `run_conversation` | Phased complex tasks, cross-turn context, bounded multi-round execution | `docs/CLAW_MODE.md`, `clawcode/llm/claw.py` |
-| Tool orchestration (engineering execution) | Slash commands and tools drive plan-to-delivery flows: collaboration, review, diagnostics, learning | `/clawteam`, `/architect`, `/tdd`, `/code-review`, `/orchestrate`, `/multi-*` | Decompose requirements, implement, test, review, converge and write back | `clawcode/tui/builtin_slash.py`, `docs/CLAWTEAM_SLASH_GUIDE.md` |
-| Computer use (OS-level) | With `desktop.enabled`, `desktop_*` tools provide screenshots, mouse, and keyboard automation; complements `browser_*` | `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_key`, `/doctor` | Cross-app actions, desktop checks, GUI-assisted verification | `docs/DESKTOP_TOOLS.md`, `docs/CLAW_MODE.md` (Desktop tools) |
+| Layer | Role | Key components / commands | Typical tasks |
+|---|---|---|---|
+| Coder agent (default terminal runtime)	| The default interactive path: Textual TUI wires sessions/messages, builds a coder runtime bundle from settings, and runs the main Agent loop (or ClawAgent.run_claw_turn when Claw mode is on). It owns send/finalize, HUD, plan state, and optional memory injection—without requiring /claw or workflow slash commands.|ChatScreen, _finalize_send_after_input, _start_agent_run, _process_message, build_coder_runtime, make_claw_agent / make_plain_agent, Agent.run, ClawAgent.run_claw_turn, _handle_agent_event, _rebuild_llm_stack|Everyday coding in the terminal: chat turns, file edits via tools, plan-style flows when /plan is active, model switch (e.g. Ctrl+O stack rebuild), non-Claw and Claw branches from the same screen|
+| Claw framework (agent runtime) | In Claw mode, `ClawAgent` runs multi-step work aligned with the main agent loop, with iteration budget and sub-agent coordination | `/claw`, `ClawAgent.run_claw_turn`, `run_agent` / `run_conversation` | Phased complex tasks, cross-turn context, bounded multi-round execution |
+| Tool orchestration (engineering execution) | Slash commands and tools drive plan-to-delivery flows: collaboration, review, diagnostics, learning | `/clawteam`, `/architect`, `/tdd`, `/code-review`, `/orchestrate`, `/multi-*` | Decompose requirements, implement, test, review, converge and write back |
+| Computer use (OS-level) | With `desktop.enabled`, `desktop_*` tools provide screenshots, mouse, and keyboard automation; complements `browser_*` | `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_key`, `/doctor` | Cross-app actions, desktop checks, GUI-assisted verification | 
 
 > `desktop_*` is **off by default**. Enable explicitly and install optional extras (e.g. `pip install -e ".[desktop]"` or equivalent). Prefer least privilege and a controlled environment.
 
@@ -325,25 +447,6 @@ flowchart TD
 
 ---
 
-## Alignment with Claude Code (workflow migration)
-
-To lower learning and migration cost, ClawCode offers **alignable** workflows where it matters.
-<img width="1937" height="319" alt="Screenshot - 2026-03-26 00 27 15" src="https://github.com/user-attachments/assets/1a9adf68-bd07-4d0b-aa9b-20896c6fedc7" />
-
-- If you want **polished product UX out of the box**, Claude Code has strengths.
-- If you want **deep terminal execution + team orchestration + learning loops + configurable extensions**, ClawCode emphasizes that combination.
-
-ClawCode is not trying to replace every tool. It uses **alignment as a migration layer** and **closed-loop engineering evolution** as the core value layer.
-
-| Alignment | What it means | Extra value in ClawCode |
-|---|---|---|
-| Slash workflows | Organize work with `/` commands (e.g. `/clawteam`, `/clawteam --deep_loop`) | Goes from “command fired” to **multi-role orchestration + convergence + write-back** |
-| Skills | Reuse and extend skills; lower asset migration cost | Skills can plug into **experience loops** and improve per project |
-| Terminal-native | TUI/CLI habits and scripting | Analyze, execute, verify, and review **in one surface** |
-| Extensible tools | plugin / MCP / computer use | Progressive capability expansion under team policy |
-
----
-
 ## Pro development: slash commands & tools & skills
 
 Beyond migration-friendly defaults, ClawCode ships **built-in pro workflows**: common multi-step flows as `/slash` commands, with **skills** to encode team practice.
@@ -381,7 +484,20 @@ Beyond migration-friendly defaults, ClawCode ships **built-in pro workflows**: c
 > Suggested flow: frame execution with `/clawteam` or `/multi-plan`, then layer domain skills for consistency.
 
 ---
+# 📊 Test Results
 
+| Suite | Tests | Status |
+| --- | --: | --- |
+| Unit + Integration | 833 | ✅ Agent, tools, and deep-loop regression (`max_iters=100` and runtime hard constraints) |
+| CLI Flags | 22 | ✅ CLI and provider `cli_bridge` paths |
+| Harness Features | 6 | ✅ Multi-step workflows, harness alignment, and closed-loop smoke |
+| Textual TUI | 3 | ✅ Welcome screen, HUD overlay, and status line |
+| TUI Interactions | 27 | ✅ Chat actions, permission dialogs, and Plan / Arc panels |
+| Real Skills + Plugins | 53 | ✅ Built-in skill registration/execution and plugin sandbox |
+
+**Collected:** 944 pytest items (including parametrized cases). **Latest full run:** 935 passed, 9 skipped, 0 failed.
+
+---
 
 ## Quick start
 
