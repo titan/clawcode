@@ -11,14 +11,14 @@
 <p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL%20OR%20Apache%202.0-blue.svg" alt="License: GPL-3.0" /></a>
   <a href=""><img src="https://img.shields.io/badge/Telegram-%40clawcode-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @clawcodeAI" /></a>
-  <a href="https://gitcgr.com/nearai/clawcode">
+  <a href="https://gitcgr.com/deepelementlab/clawcode">
     <img src="https://gitcgr.com/badge/nearai/clawcode.svg" alt="gitcgr" />
   </a>
 </p>
 
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="README.zh-CN.md">简体中文</a> 
+  <a href="README.zh.md">简体中文</a> 
 </p>
 
 ClawCode is a Claude Code‑inspired implementation in Python and Rust, focused on agents and experience‑based evolution. It is also an open‑source coding‑agent CLI for Anthropic, OpenAI, Gemini, DeepSeek, GLM, Kimi, Ollama, Codex, GitHub Models, and 200+ models via OpenAI‑compatible APIs.
