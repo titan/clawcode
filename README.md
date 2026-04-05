@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL%20OR%20Apache%202.0-blue.svg" alt="License: GPL-3.0" /></a>
-  <a href=""><img src="https://img.shields.io/badge/Telegram-%40clawcode-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @clawcodeAI" /></a>
+  <a href="https://github.com/deepelementlab/clawcode/wiki"><img src="https://img.shields.io/badge/Wiki-documentation-26A5E4?style=flat&logo=github&logoColor=white"alt="Documentation Wiki"/></a>
   <a href="https://gitcgr.com/deepelementlab/clawcode">
     <img src="https://gitcgr.com/badge/nearai/clawcode.svg" alt="gitcgr" />
   </a>
