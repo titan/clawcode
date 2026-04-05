@@ -22,12 +22,12 @@
 </p>
 
 <p align="center">
-  <a href="#Philosophy">Philosophy</a> •
-  <a href="#Product vision">Product vision</a> •
-  <a href="#Development assistance functions">Development assistance functions</a> •
-  <a href="#System Architecture">System Architecture</a> •
-  <a href="#Value at a glance">Value at a glance</a> •
-  <a href="#Get started">Get started</a>
+  <a href="#philosophy">Philosophy</a> •
+  <a href="#product-vision">Product vision</a> •
+  <a href="#development-assistance-functions">Development assistance functions</a> •
+  <a href="#system-architecture">System Architecture</a> •
+  <a href="#value-at-a-glance">Value at a glance</a> •
+  <a href="#get-started">Get started</a>
 </p>
 
 
