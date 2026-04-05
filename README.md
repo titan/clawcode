@@ -59,10 +59,13 @@ into an executable, learnable, evolving engineering loop.
 ## Product vision
 
 ClawCode is a creative dev tool aimed at real delivery. 
-Features:
+
+### Features:
+
 <img width="1376" height="768" alt="Generated_image" src="https://github.com/user-attachments/assets/1a09bd15-9859-413d-a1f3-f0c573e12b99" />
 
-Core motivations:
+### Core motivations:
+
 - **Turn ideas into runnable code quickly**  
   From “I have an idea” to “implemented and verified,” with less context switching and tool friction.
 
@@ -97,6 +100,12 @@ Core motivations:
 | `/arc-plan` | Generate a one-shot alternative implementation plan (ARC planner). |
 | `/plugin` | Manage clawcode plugins. |
 
+### Test-driven development
+
+| Command | Function |
+|--------|----------|
+| `/tdd` | Run strict TDD workflow: scaffold, RED, GREEN, refactor, and coverage gate. |
+
 ### Multi-role orchestration & engineering workflows
 
 | Command | Function |
@@ -110,11 +119,6 @@ Core motivations:
 | `/multi-workflow` | Run full-stack multi-model workflow (backend + UI advisors, orchestrator writes code). |
 | `/orchestrate` | Run sequential multi-role workflow (HANDOFF between planner/TDD/review/security/architect); `/orchestrate show\|list`. |
 
-### Test-driven development
-
-| Command | Function |
-|--------|----------|
-| `/tdd` | Run strict TDD workflow: scaffold, RED, GREEN, refactor, and coverage gate. |
 
 ### Learning loop: ECAP, TECAP & instincts
 
@@ -208,6 +212,102 @@ ClawCode uses **alignment as a migration layer** and **closed-loop engineering e
 ## Compatible with Claude Code (Agent & Subagent)
 <img width="1817" height="1052" alt="Screenshot - 2026-04-05 12 41 32" src="https://github.com/user-attachments/assets/5a1eba89-1986-4253-a36b-431b54bd6059" />
 
+## Agent roles & team (Claude Code–style)
+
+ClawCode aligns with Claude Code’s **Agent** tool: the main agent spawns **subagents** with isolated context, custom prompts, and tool allowlists. Subagents **cannot** nest another `Agent` / `Task` (delegation is stripped for the inner run).
+
+### 1. Built-in subagent roles
+
+| Agent id | Purpose (short) |
+| --- | --- |
+| `explore` | Read-only exploration (`Read`/`Glob`/`Grep`/…) |
+| `plan` | Read-only research for planning |
+| `code-review` | Review-focused, read-only tools |
+| `general-purpose` | Full tool surface (minus delegate tools) when you omit a custom list |
+
+### 2. Built-in **clawteam** (multi-role “team”)
+
+Use these ids as `agent` / `subagent_type` the same way as `explore` / `plan`. Examples: `clawteam-system-architect`, `clawteam-rnd-backend`, `clawteam-qa`, `clawteam-product-manager`, … (all `clawteam-*` ids ship in the built-in registry).
+
+**Collaboration model:** the **orchestrator** is still the main agent—it calls `Agent` multiple times with different role ids and tasks. There is no separate “team scheduler” UI; “team work” is **sequential/parallel tool calls** decided by the model.
+
+### 3. Custom roles (project + user)
+
+Definitions are **Markdown files** with **YAML frontmatter** (same idea as `.claude/agents/`).
+
+**User-wide (highest override of project defaults for same name):**
+
+- `~/.claude/agents/*.md`
+
+**Project (read merge order; later roots override earlier for the same `name`):**
+
+- `.claw/agents/*.md`
+- `.clawcode/agents/*.md`
+- `.claude/agents/*.md`
+
+Frontmatter fields (common):
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Agent id (default: filename stem) |
+| `description` | Short blurb for routing / docs |
+| `tools` | Optional allowlist using **Claude-style names** (`Read`, `Write`, `Bash`, …) — mapped to ClawCode tools |
+| `disallowedTools` | Block list (same naming style) |
+| `model` | Optional override (`inherit`, `sonnet`, `opus`, `haiku`, or full model id) |
+| `maxTurns` | Cap on ReAct iterations for this subagent |
+| `isolation` | e.g. `none`, `worktree`, `fork` |
+| `permissionMode`, `background`, `mcpServers`, `hooks` | Passed through when set |
+
+Body markdown becomes the subagent **system prompt**.
+
+**Example** — `.claw/agents/api-guardian.md`:
+
+```markdown
+---
+name: api-guardian
+description: Reviews public HTTP API changes only.
+tools:
+  - Read
+  - Glob
+  - Grep
+  - diagnostics
+maxTurns: 24
+---
+
+You only analyze API routes and OpenAPI/contract files. Report breaking changes as a bullet list.
+```
+
+### 4. Invoking a subagent (`Agent` tool)
+
+The model (or harness) calls **`Agent`** with at least a **task** and an **agent id**:
+
+```json
+{
+  "agent": "plan",
+  "task": "Map how authentication is implemented; list key files."
+}
+```
+
+Aliases:
+
+- `subagent_type` ↔ `agent`
+- `prompt` ↔ `task`
+- Optional: `context`, `timeout` (seconds), `max_iterations`, `isolation`, `allowed_tools` (override allowlist)
+
+Unknown `agent` → error listing **known ids** from the merged registry (built-ins + your files).
+
+### 5. Plan mode (`/plan`)
+
+Only these subagents are allowed: `plan`, `explore`, `code-review` (plus internal `review` alias where applicable). Their tools are further restricted to **read-only** policy (no write/exec tools even if the definition asked for them).
+
+### 6. Optional: deep-loop / handoff settings (`.clawcode.json`)
+
+Runtime tuning for multi-round **clawteam-style** loops lives under settings such as `clawteam_deeploop_*` (enable flag, max iterations, convergence, handoff target, etc.). See project docs/snippets for a full example—this does **not** replace defining roles; it shapes how long/how strictly the loop runs.
+
+### 7. Relation to `agents` in `.clawcode.json`
+
+The top-level `agents` map (`coder`, `task`, `title`, `summarizer`, …) configures **which model/provider** backs **main** flows. **Subagent roles** (`explore`, `clawteam-*`, custom `*.md`) are selected by the **`Agent` tool** and merged from the paths above—not by renaming those slots.
+
 ---
 ### Full-stack task execution stack (AI Coding + Claw framework + tools + computer use)
 
@@ -267,7 +367,7 @@ Sessions and messages persist locally—not a throwaway chat. Split complex work
 ### 2) `clawteam`: a schedulable virtual R&D team
 
 With `/clawteam`, the system can orchestrate roles and execution:
-
+- Professional role segmentation and extraction of mental models from years of industry experience.
 - Intelligent role pick and assignment
 - Serial/parallel flow planning
 - Per-role outputs and final integration
@@ -334,7 +434,7 @@ ClawCode treats **experience** as a first-class artifact—not only conclusions,
 | Governance & migration | Privacy tiers, redaction, feedback scores, compatibility | `--privacy`, `--v1-compatible`, `--strategy`, `--explain` | Audit snapshots; export wrappers (`schema_meta`, `quality_score`, …) | `docs/ECAP_v2_USER_GUIDE.md`, `docs/TECAP_v2_UPGRADE.md` |
 
 
-#### ClawCode is not trying to replace every tool. (implementation view)
+#### Implementation view
 
 ```mermaid
 flowchart LR
