@@ -213,6 +213,8 @@ ClawCode is not trying to replace every tool. It uses **alignment as a migration
 | Extensible tools | plugin / MCP / computer use | Progressive capability expansion under team policy |
 
 ## Compatible with Claude Code (CLAUDE.md & Subagent)
+<img width="1817" height="1052" alt="Screenshot - 2026-04-05 12 41 32" src="https://github.com/user-attachments/assets/5a1eba89-1986-4253-a36b-431b54bd6059" />
+
 ---
 ### Full-stack task execution stack (AI Coding + Claw framework + tools + computer use)
 
@@ -412,26 +414,6 @@ flowchart LR
 
 ---
 
-## Master–slave agent architecture (diagram)
-
-```mermaid
-flowchart TD
-  user[User goal] --> master[Master agent]
-  master --> planner[Decompose and plan]
-  planner --> subA[Sub-agent A]
-  planner --> subB[Sub-agent B]
-  planner --> subC[Sub-agent C]
-  subA --> toolsA[Tools and results]
-  subB --> toolsB[Tools and results]
-  subC --> toolsC[Tools and results]
-  toolsA --> integrate[Master integration]
-  toolsB --> integrate
-  toolsC --> integrate
-  integrate --> verify[Verify and risk]
-  verify --> memory[Session and experience store]
-```
-
----
 
 ## How ClawCode compares
 
