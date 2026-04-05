@@ -5,7 +5,7 @@
 <h1 align="center">ClawCode</h1>
 
 <p align="center">
-  <strong>Your creative dev tool , AI programming Swiss Army knife</strong>
+  <strong>Your creative dev tool , AI cording Swiss Army knife</strong>
 </p>
 
 <p align="center">
@@ -90,8 +90,8 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 - **Execute “full-stack” engineering tasks end-to-end**  
   Beyond one-off codegen: planning, delegation, execution, verification, review, and structured learning.
 
-### Development assistance functions
-## Multi-role orchestration & engineering workflows
+## Development assistance functions
+### Multi-role orchestration & engineering workflows
 
 | Command | Function |
 |--------|----------|
@@ -104,7 +104,7 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/multi-workflow` | Run full-stack multi-model workflow (backend + UI advisors, orchestrator writes code). |
 | `/orchestrate` | Run sequential multi-role workflow (HANDOFF between planner/TDD/review/security/architect); `/orchestrate show\|list`. |
 
-## Architecture & review
+### Architecture & review
 
 | Command | Function |
 |--------|----------|
@@ -113,13 +113,13 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/security-review` | Complete a security review of the pending changes on the current branch. |
 | `/review` | Review a pull request. |
 
-## Test-driven development
+### Test-driven development
 
 | Command | Function |
 |--------|----------|
 | `/tdd` | Run strict TDD workflow: scaffold, RED, GREEN, refactor, and coverage gate. |
 
-## Learning loop: ECAP, TECAP & instincts
+### Learning loop: ECAP, TECAP & instincts
 
 | Command | Function |
 |--------|----------|
@@ -150,7 +150,7 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/experience-dashboard` | Show ECAP-first experience metrics dashboard (add `--json` or `--no-alerts`). |
 | `/closed-loop-contract` | Show closed-loop config contract coverage (consumed vs unconsumed keys). |
 
-## Observability, diagnostics & diffs
+### Observability, diagnostics & diffs
 
 | Command | Function |
 |--------|----------|
@@ -159,7 +159,7 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/debug` | Debug your current clawcode session via logs (bundled viewer). |
 | `/insights` | Generate a report analyzing your clawcode sessions. |
 
-## Claw mode & external CLIs
+### Claw mode & external CLIs
 
 | Command | Function |
 |--------|----------|
@@ -169,7 +169,7 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/opencode-cli` | Enable Claw mode then path B′: run OpenCode opencode CLI in workspace. |
 | `/codex-cli` | Enable Claw mode then path B″: run OpenAI Codex CLI in workspace. |
 
-## Session, Git, workspace & engineering context
+### Session, Git, workspace & engineering context
 
 | Command | Function |
 |--------|----------|
@@ -186,7 +186,7 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/memory` | Edit claw memory files. |
 | `/pr-comments` | Get comments from a GitHub pull request. |
 
-## Autocomplete / related planning & plugins
+### Autocomplete / related planning & plugins
 
 | Command | Function |
 |--------|----------|
@@ -194,7 +194,11 @@ ClawCode is a creative dev tool aimed at real delivery. Core motivations:
 | `/arc-plan` | Generate a one-shot alternative implementation plan (ARC planner). |
 | `/plugin` | Manage clawcode plugins. |
 
-## Compatible with Claude Code (plugins & skills)
+## System Architecture
+<img width="1376" height="768" alt="Generated_image_architecture" src="https://github.com/user-attachments/assets/1bd96e39-8ca3-4e96-8698-dbc755ce94ab" />
+
+
+## Compatible with Claude Code (config & plugins & skills)
 
 To lower learning and migration cost, ClawCode offers **alignable** workflows where it matters.
 
@@ -203,7 +207,7 @@ To lower learning and migration cost, ClawCode offers **alignable** workflows wh
 - If you want **polished product UX out of the box**, Claude Code has strengths.
 - If you want **deep terminal execution + team orchestration + learning loops + configurable extensions**, ClawCode emphasizes that combination.
 
-ClawCode is not trying to replace every tool. It uses **alignment as a migration layer** and **closed-loop engineering evolution** as the core value layer.
+ClawCode uses **alignment as a migration layer** and **closed-loop engineering evolution** as the core value layer.
 
 | Alignment | What it means | Extra value in ClawCode |
 |---|---|---|
@@ -212,7 +216,7 @@ ClawCode is not trying to replace every tool. It uses **alignment as a migration
 | Terminal-native | TUI/CLI habits and scripting | Analyze, execute, verify, and review **in one surface** |
 | Extensible tools | plugin / MCP / computer use | Progressive capability expansion under team policy |
 
-## Compatible with Claude Code (CLAUDE.md & Subagent)
+## Compatible with Claude Code (Agent & Subagent)
 <img width="1817" height="1052" alt="Screenshot - 2026-04-05 12 41 32" src="https://github.com/user-attachments/assets/5a1eba89-1986-4253-a36b-431b54bd6059" />
 
 ---
