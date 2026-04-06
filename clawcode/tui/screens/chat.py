@@ -132,20 +132,6 @@ _PLUGIN_NAMESPACE_CMD = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]*$")
 _logger = logging.getLogger(__name__)
 
 
-def _append_memory_snapshot_to_system_prompt(system_prompt: str) -> str:
-    """Append memory/user snapshot blocks when available (fail-open)."""
-    try:
-        from ...claw_memory.memory_store import render_memory_prompt_blocks
-
-        mem_block, user_block = render_memory_prompt_blocks()
-        extras = [b.strip() for b in (mem_block, user_block) if isinstance(b, str) and b.strip()]
-        if not extras:
-            return system_prompt
-        return (system_prompt.strip() + "\n\n" + "\n\n".join(extras)).strip()
-    except Exception:
-        return system_prompt
-
-
 def _parse_plugin_namespace_slash(raw_text: str) -> tuple[str, str] | None:
     """Parse `/plugin:<command> [tail]` and return (command, tail)."""
     raw = (raw_text or "").strip()
@@ -1102,29 +1088,10 @@ class ChatScreen(Screen):
 
     async def _rebuild_llm_stack(self) -> None:
         """Recreate LLM provider, tools, and Agent from current ``settings`` (e.g. after Ctrl+O switch)."""
-        from ...llm.claw import ClawAgent
-        from ...llm.providers import create_provider, resolve_provider_from_model
-        from ...llm.tools import get_builtin_tools
+        from ...llm.runtime_bundle import build_coder_runtime
 
         if not getattr(self, "_session_service", None) or not getattr(self, "_message_service", None):
             return
-
-        agent_config = self.settings.get_agent_config("coder")
-        provider_name, provider_key = resolve_provider_from_model(
-            agent_config.model,
-            self.settings,
-            agent_config,
-        )
-        provider_cfg = self.settings.providers.get(provider_key)
-        api_key = getattr(provider_cfg, "api_key", None) if provider_cfg else None
-        base_url = getattr(provider_cfg, "base_url", None) if provider_cfg else None
-
-        provider = create_provider(
-            provider_name=provider_name,
-            model_id=agent_config.model,
-            api_key=api_key,
-            base_url=base_url,
-        )
 
         lsp_mgr = getattr(self._app_context, "lsp_manager", None) if self._app_context else None
         pm = getattr(self._app_context, "plugin_manager", None) if self._app_context else None
@@ -1132,67 +1099,18 @@ class ChatScreen(Screen):
         _for_claw: bool | None = None
         if getattr(self.settings.desktop, "tools_require_claw_mode", False):
             _for_claw = bool(getattr(self, "_claw_mode_enabled", False))
-        tools = get_builtin_tools(
-            permissions=self.app,
-            session_service=self._session_service,
-            message_service=self._message_service,
-            lsp_manager=lsp_mgr,
-            plugin_manager=pm,
-            for_claw_mode=_for_claw,
-        )
 
-        from ...llm.claw_support import (
-            claw_agent_kwargs_from_settings,
-            get_claw_mode_system_suffix,
-        )
-        from ...llm.prompts import get_system_prompt, load_context_from_project
-
-        wd = (getattr(self.settings, "working_directory", None) or "").strip()
-        ctx_parts: list[str] = []
-        if pm is not None and getattr(pm, "context_content", None):
-            ctx_parts.append(str(pm.context_content))
-        if wd:
-            try:
-                ctx_parts.append(
-                    load_context_from_project(wd, max_files=8, max_size=8000),
-                )
-            except Exception:
-                pass
-        merged_ctx = "\n\n".join(p for p in ctx_parts if p)
-        system_prompt = get_system_prompt(
-            agent_type="coder",
-            context_paths_content=merged_ctx,
-            skills_description=pm.get_skills_description() if pm else "",
-            project_root=wd,
-        ) + get_claw_mode_system_suffix()
-        system_prompt = _append_memory_snapshot_to_system_prompt(system_prompt)
-
-        claw_base = claw_agent_kwargs_from_settings(self.settings)
-
-        _summarizer_svc = None
-        try:
-            from ...history.summarizer import SummarizerService
-
-            _summarizer_svc = SummarizerService(
-                settings=self.settings,
-                message_service=self._message_service,
-                session_service=self._session_service,
-                provider=provider,
-            )
-        except Exception:
-            pass
-
-        self._agent = ClawAgent(
-            provider=provider,
-            tools=tools,
-            message_service=self._message_service,
-            session_service=self._session_service,
-            system_prompt=system_prompt,
-            hook_engine=pm.hook_engine if pm else None,
-            summarizer=_summarizer_svc,
+        bundle = build_coder_runtime(
             settings=self.settings,
-            **claw_base,
+            session_service=self._session_service,
+            message_service=self._message_service,
+            permissions=self.app,
+            plugin_manager=pm,
+            lsp_manager=lsp_mgr,
+            for_claw_mode=_for_claw,
+            style="tui_coder",
         )
+        self._agent = bundle.make_claw_agent(permission_client=self.app)
 
     async def _initialize(self) -> None:
         """Initialize the chat screen with services (from AppContext or create locally)."""

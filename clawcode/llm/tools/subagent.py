@@ -358,11 +358,13 @@ class SubAgent:
         hook_engine: HookEngine | None = None,
         provider: Any = None,
         available_tools: list[BaseTool] | None = None,
+        permission_client: Any | None = None,
     ) -> None:
         self._context = context
         self._hook_engine = hook_engine
         self._provider = provider
         self._available_tools = filter_delegate_tools(available_tools or [])
+        self._permission_client = permission_client
         self._start_time: float = 0.0
         self._tool_call_count: int = 0
         self._total_input_tokens: int = 0
@@ -566,6 +568,7 @@ class SubAgent:
                 working_directory=effective_cwd,
                 hook_engine=self._hook_engine,
                 settings=_settings_obj,
+                permission_client=self._permission_client,
             )
             loop_error: str | None = None
             hud_id_prefix = f"sub:{self._context.session_id}:"
@@ -999,6 +1002,7 @@ class AgentTool(BaseTool):
             hook_engine=self._hook_engine,
             provider=self._provider,
             available_tools=self._available_tools,
+            permission_client=context.permission_service,
         )
         return _PreparedSubagent(
             subagent=subagent,

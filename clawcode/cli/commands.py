@@ -174,9 +174,8 @@ async def run_non_interactive(
     """
     import json
 
-    from ..llm.agent import Agent, AgentEventType
-    from ..llm.providers import create_provider, resolve_provider_from_model
-    from ..llm.tools import get_builtin_tools
+    from ..llm.agent import AgentEventType
+    from ..llm.runtime_bundle import build_coder_runtime
 
     logger = structlog.get_logger()
     settings = app_ctx.settings
@@ -195,41 +194,18 @@ async def run_non_interactive(
     try:
         session = await session_service.create(f"Non-interactive: {prompt[:50]}")
 
-        agent_config = settings.get_agent_config("coder")
-        provider_name, provider_key = resolve_provider_from_model(
-            agent_config.model,
-            settings,
-            agent_config,
-        )
-        provider_cfg = settings.providers.get(provider_key)
-        api_key = getattr(provider_cfg, "api_key", None) if provider_cfg else None
-        base_url = getattr(provider_cfg, "base_url", None) if provider_cfg else None
-
-        provider = create_provider(
-            provider_name=provider_name,
-            model_id=agent_config.model,
-            api_key=api_key,
-            base_url=base_url,
-        )
-
         pm = getattr(app_ctx, "plugin_manager", None)
-        hook_engine = pm.hook_engine if pm else None
-
-        tools = get_builtin_tools(
-            permissions=None,  # Auto-approve for non-interactive
-            session_service=session_service,
-            message_service=message_service,
-            plugin_manager=pm,
-        )
-
-        agent = Agent(
-            provider=provider,
-            tools=tools,
-            message_service=message_service,
-            session_service=session_service,
-            hook_engine=hook_engine,
+        bundle = build_coder_runtime(
             settings=settings,
+            session_service=session_service,
+            message_service=message_service,
+            permissions=None,
+            plugin_manager=pm,
+            lsp_manager=None,
+            for_claw_mode=None,
+            style="cli_non_interactive",
         )
+        agent = bundle.make_plain_agent(permission_client=None)
 
         # Process the prompt
         content = ""

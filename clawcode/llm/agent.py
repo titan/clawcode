@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator
 from .base import BaseProvider, ProviderEvent, ProviderEventType, ToolCall, TokenUsage
 from .claw_support.iteration_budget import IterationBudget
 from .plan_policy import is_tool_allowed_in_plan_mode
+from .tool_input_validate import pilot_validate_tool_input
 from .tools import BaseTool, ToolContext, ToolResponse
 from .prompts import get_system_prompt
 from ..config import get_settings
@@ -328,6 +329,7 @@ class Agent:
         hook_engine: HookEngine | None = None,
         summarizer: Any | None = None,
         settings: Settings | None = None,
+        permission_client: Any | None = None,
     ) -> None:
         """Initialize the Agent.
 
@@ -341,6 +343,8 @@ class Agent:
             working_directory: Working directory for tools
             hook_engine: Plugin hook engine
             summarizer: Optional SummarizerService for auto-compacting long conversations
+            permission_client: Same object passed to ``get_builtin_tools(permissions=...)``;
+                exposed on :class:`~clawcode.llm.tools.base.ToolContext` as ``permission_service``.
         """
         self._provider = provider
         # One schema per physical tool; aliases (Task -> Agent) share the same instance.
@@ -362,6 +366,7 @@ class Agent:
         self._max_iterations = max_iterations
         self._hook_engine = hook_engine
         self._summarizer = summarizer
+        self._permission_client = permission_client
         self._settings = settings
         if self._settings is None:
             try:
@@ -521,7 +526,7 @@ class Agent:
                     session_id=session_id,
                     message_id="",
                     working_directory=self._working_directory,
-                    permission_service=None,
+                    permission_service=self._permission_client,
                     plan_mode=False,
                     iteration_budget=None,
                 )
@@ -883,6 +888,27 @@ class Agent:
                     pass
             self._active_requests.pop(session_id, None)
 
+    def _should_parallelize_tool_calls(self, tool_calls: list[ToolCall]) -> bool:
+        """True when parallel gather is allowed (CLI-only batch, no stream/subagent)."""
+        if len(tool_calls) < 2:
+            return False
+        st = self._settings
+        if st is None or not bool(getattr(st, "parallel_tool_calls", False)):
+            return False
+        if self._permission_client is not None:
+            return False
+        from .tools.subagent import AgentTool
+
+        for tc in tool_calls:
+            t = self._tools.get(tc.name)
+            if t is None:
+                return False
+            if isinstance(t, AgentTool):
+                return False
+            if hasattr(t, "run_stream") and callable(getattr(t, "run_stream")):
+                return False
+        return True
+
     async def _iter_tool_events(
         self,
         session_id: str,
@@ -902,339 +928,398 @@ class Agent:
         Yields:
             AgentEvent instances during tool execution
         """
+        if self._should_parallelize_tool_calls(tool_calls):
+
+            async def _run_one(
+                idx: int,
+                tc: ToolCall,
+            ) -> tuple[int, list[AgentEvent], list[dict[str, Any]]]:
+                frag: list[dict[str, Any]] = []
+                buf: list[AgentEvent] = []
+                async for evt in self._collect_single_tool_events(
+                    session_id,
+                    tc,
+                    frag,
+                    plan_mode=plan_mode,
+                    iteration_budget=iteration_budget,
+                ):
+                    buf.append(evt)
+                return (idx, buf, frag)
+
+            gathered = await asyncio.gather(
+                *(_run_one(i, tc) for i, tc in enumerate(tool_calls))
+            )
+            for _idx, ev_buf, frag in sorted(gathered, key=lambda p: p[0]):
+                for evt in ev_buf:
+                    yield evt
+                results.extend(frag)
+            return
+
         for tool_call in tool_calls:
-            tool_name = tool_call.name
-
-            tool = self._tools.get(tool_name)
-            if not tool:
-                err = f"Error: Unknown tool '{tool_name}'"
-                results.append(_persisted_tool_result_dict(tool_call, err, True))
-                yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
-                continue
-
-            from .tools import ToolContext
-            TOOL_TIMEOUT = 120  # per-tool hard timeout (seconds)
-            context = ToolContext(
-                session_id=session_id,
-                message_id="",
-                working_directory=self._working_directory,
-                permission_service=None,
+            async for evt in self._collect_single_tool_events(
+                session_id,
+                tool_call,
+                results,
                 plan_mode=plan_mode,
                 iteration_budget=iteration_budget,
+            ):
+                yield evt
+
+    async def _collect_single_tool_events(
+        self,
+        session_id: str,
+        tool_call: ToolCall,
+        results_fragment: list[dict[str, Any]],
+        *,
+        plan_mode: bool = False,
+        iteration_budget: IterationBudget | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Run one tool call; append persisted dicts to results_fragment."""
+        tool_name = tool_call.name
+
+        tool = self._tools.get(tool_name)
+        if not tool:
+            err = f"Error: Unknown tool '{tool_name}'"
+            results_fragment.append(_persisted_tool_result_dict(tool_call, err, True))
+            yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
+            return
+
+        from .tools import ToolContext
+        TOOL_TIMEOUT = 120  # per-tool hard timeout (seconds)
+        context = ToolContext(
+            session_id=session_id,
+            message_id="",
+            working_directory=self._working_directory,
+            permission_service=self._permission_client,
+            plan_mode=plan_mode,
+            iteration_budget=iteration_budget,
+        )
+
+        try:
+            self._on_tool_used(tool_name)
+            if plan_mode:
+                allowed, reason = is_tool_allowed_in_plan_mode(
+                    tool_name,
+                    tool_call.get_input_dict(),
+                )
+                if not allowed:
+                    _err = reason or "Tool is blocked in /plan mode."
+                    results_fragment.append(_persisted_tool_result_dict(tool_call, _err, True))
+                    yield AgentEvent.tool_result(tool_name, tool_call.id, _err, True, True)
+                    return
+
+            _pilot_err = pilot_validate_tool_input(
+                tool_name, tool_call.get_input_dict()
             )
+            if _pilot_err:
+                results_fragment.append(
+                    _persisted_tool_result_dict(tool_call, _pilot_err, True)
+                )
+                yield AgentEvent.tool_result(
+                    tool_name, tool_call.id, _pilot_err, True, True
+                )
+                return
 
-            try:
-                self._on_tool_used(tool_name)
-                if plan_mode:
-                    allowed, reason = is_tool_allowed_in_plan_mode(
-                        tool_name,
-                        tool_call.get_input_dict(),
+            # --- Hook: PreToolUse (can deny the tool call) ---
+            if self._hook_engine:
+                _decisions = await self._hook_engine.fire(
+                    HookEvent.PreToolUse,
+                    match_value=tool_name,
+                    context={
+                        "session_id": session_id,
+                        "tool_call_id": tool_call.id,
+                        "tool_name": tool_name,
+                        "tool_input": tool_call.get_input_dict(),
+                    },
+                    provider=self._provider,
+                    working_directory=self._working_directory,
+                    suppress_agent_hooks=True,
+                )
+                if any(d.permissionDecision == "deny" for d in _decisions):
+                    _reason = next(
+                        (d.permissionDecisionReason for d in _decisions if d.permissionDecision == "deny"),
+                        "Blocked by hook",
                     )
-                    if not allowed:
-                        _err = reason or "Tool is blocked in /plan mode."
-                        results.append(_persisted_tool_result_dict(tool_call, _err, True))
-                        yield AgentEvent.tool_result(tool_name, tool_call.id, _err, True, True)
-                        continue
+                    _err = f"Permission denied by hook: {_reason}"
+                    results_fragment.append(_persisted_tool_result_dict(tool_call, _err, True))
+                    yield AgentEvent.tool_result(tool_name, tool_call.id, _err, True, True)
+                    return
 
-                # --- Hook: PreToolUse (can deny the tool call) ---
+            # Learning observations: lightweight local telemetry for /learn.
+            try:
+                provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
+                model_name = str(getattr(self._provider, "model", "") or "")
+                reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
+                record_tool_observation(
+                    self._settings,
+                    phase="tool_start",
+                    session_id=session_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call.id,
+                    tool_input=tool_call.get_input_dict(),
+                    tool_output="",
+                    is_error=False,
+                    source_provider=str(provider_name),
+                    source_model=model_name,
+                    reasoning_effort=reasoning_effort,
+                )
+            except Exception:
+                pass
+
+            # Sub-agent: stream nested TOOL_USE / TOOL_RESULT to TUI (hud_only), then final result.
+            from .tools.subagent import AgentTool, SubagentRunFinal
+
+            if isinstance(tool, AgentTool):
+                final: SubagentRunFinal | None = None
+                try:
+                    async for item in tool.forward_subagent_events(tool_call, context):
+                        if isinstance(item, SubagentRunFinal):
+                            final = item
+                        else:
+                            yield item
+                        await asyncio.sleep(0)
+                except Exception as e:
+                    err = f"Error executing tool: {e}"
+                    results_fragment.append(_persisted_tool_result_dict(tool_call, err, True))
+                    yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
+                    await asyncio.sleep(0)
+                    return
+
+                if final is None:
+                    err = "Error: sub-agent produced no result"
+                    results_fragment.append(_persisted_tool_result_dict(tool_call, err, True))
+                    yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
+                    await asyncio.sleep(0)
+                    return
+
+                response = final.response
+                _clean_resp = sanitize_text(response.content or "")
+                _clean_resp = self._maybe_save_artifact(session_id, tool_call.id, _clean_resp)
+                results_fragment.append(
+                    _persisted_tool_result_dict(
+                        tool_call, _clean_resp, response.is_error
+                    )
+                )
+                yield AgentEvent.tool_result(
+                    tool_name,
+                    tool_call.id,
+                    _clean_resp,
+                    response.is_error,
+                    True,
+                )
                 if self._hook_engine:
-                    _decisions = await self._hook_engine.fire(
-                        HookEvent.PreToolUse,
+                    _post_event = (
+                        HookEvent.PostToolUseFailure
+                        if response.is_error
+                        else HookEvent.PostToolUse
+                    )
+                    await self._hook_engine.fire(
+                        _post_event,
                         match_value=tool_name,
                         context={
                             "session_id": session_id,
                             "tool_call_id": tool_call.id,
                             "tool_name": tool_name,
                             "tool_input": tool_call.get_input_dict(),
+                            "tool_output": response.content,
                         },
                         provider=self._provider,
                         working_directory=self._working_directory,
                         suppress_agent_hooks=True,
                     )
-                    if any(d.permissionDecision == "deny" for d in _decisions):
-                        _reason = next(
-                            (d.permissionDecisionReason for d in _decisions if d.permissionDecision == "deny"),
-                            "Blocked by hook",
-                        )
-                        _err = f"Permission denied by hook: {_reason}"
-                        results.append(_persisted_tool_result_dict(tool_call, _err, True))
-                        yield AgentEvent.tool_result(tool_name, tool_call.id, _err, True, True)
-                        continue
-
-                # Learning observations: lightweight local telemetry for /learn.
                 try:
                     provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
                     model_name = str(getattr(self._provider, "model", "") or "")
                     reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
                     record_tool_observation(
                         self._settings,
-                        phase="tool_start",
+                        phase="tool_complete",
                         session_id=session_id,
                         tool_name=tool_name,
                         tool_call_id=tool_call.id,
                         tool_input=tool_call.get_input_dict(),
-                        tool_output="",
-                        is_error=False,
+                        tool_output=response.content,
+                        is_error=bool(response.is_error),
                         source_provider=str(provider_name),
                         source_model=model_name,
                         reasoning_effort=reasoning_effort,
                     )
                 except Exception:
                     pass
-
-                # Sub-agent: stream nested TOOL_USE / TOOL_RESULT to TUI (hud_only), then final result.
-                from .tools.subagent import AgentTool, SubagentRunFinal
-
-                if isinstance(tool, AgentTool):
-                    final: SubagentRunFinal | None = None
-                    try:
-                        async for item in tool.forward_subagent_events(tool_call, context):
-                            if isinstance(item, SubagentRunFinal):
-                                final = item
-                            else:
-                                yield item
-                            await asyncio.sleep(0)
-                    except Exception as e:
-                        err = f"Error executing tool: {e}"
-                        results.append(_persisted_tool_result_dict(tool_call, err, True))
-                        yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
-                        await asyncio.sleep(0)
-                        continue
-
-                    if final is None:
-                        err = "Error: sub-agent produced no result"
-                        results.append(_persisted_tool_result_dict(tool_call, err, True))
-                        yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
-                        await asyncio.sleep(0)
-                        continue
-
-                    response = final.response
-                    _clean_resp = sanitize_text(response.content or "")
-                    _clean_resp = self._maybe_save_artifact(session_id, tool_call.id, _clean_resp)
-                    results.append(
-                        _persisted_tool_result_dict(
-                            tool_call, _clean_resp, response.is_error
-                        )
-                    )
-                    yield AgentEvent.tool_result(
-                        tool_name,
-                        tool_call.id,
-                        _clean_resp,
-                        response.is_error,
-                        True,
-                    )
-                    if self._hook_engine:
-                        _post_event = (
-                            HookEvent.PostToolUseFailure
-                            if response.is_error
-                            else HookEvent.PostToolUse
-                        )
-                        await self._hook_engine.fire(
-                            _post_event,
-                            match_value=tool_name,
-                            context={
-                                "session_id": session_id,
-                                "tool_call_id": tool_call.id,
-                                "tool_name": tool_name,
-                                "tool_input": tool_call.get_input_dict(),
-                                "tool_output": response.content,
-                            },
-                            provider=self._provider,
-                            working_directory=self._working_directory,
-                            suppress_agent_hooks=True,
-                        )
-                    try:
-                        provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
-                        model_name = str(getattr(self._provider, "model", "") or "")
-                        reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                        record_tool_observation(
-                            self._settings,
-                            phase="tool_complete",
-                            session_id=session_id,
-                            tool_name=tool_name,
-                            tool_call_id=tool_call.id,
-                            tool_input=tool_call.get_input_dict(),
-                            tool_output=response.content,
-                            is_error=bool(response.is_error),
-                            source_provider=str(provider_name),
-                            source_model=model_name,
-                            reasoning_effort=reasoning_effort,
-                        )
-                    except Exception:
-                        pass
-                    await asyncio.sleep(0)
-                    continue
-
-                # Optional streaming path (e.g., bash stdout)
-                if hasattr(tool, "run_stream") and callable(getattr(tool, "run_stream")):
-                    final_response = None
-                    final_meta = ""
-                    async for partial in tool.run_stream(tool_call, context):  # type: ignore[attr-defined]
-                        meta = (partial.metadata or "").lower()
-                        if meta.startswith("final"):
-                            final_response = partial
-                            final_meta = meta
-                            break
-                        # stream chunk
-                        if partial.content:
-                            stream = meta if meta in ("stdout", "stderr") else None
-                            yield AgentEvent.tool_result(
-                                tool_name,
-                                tool_call.id,
-                                partial.content,
-                                False,
-                                False,
-                                tool_stream=stream,
-                            )
-                            await asyncio.sleep(0)
-
-                    if final_response is None:
-                        # Fallback if stream didn't provide final marker
-                        final_response = await tool.run(tool_call, context)
-
-                    _clean_content = sanitize_text(final_response.content or "")
-                    _clean_content = self._maybe_save_artifact(session_id, tool_call.id, _clean_content)
-                    results.append(
-                        _persisted_tool_result_dict(
-                            tool_call, _clean_content, final_response.is_error
-                        )
-                    )
-                    # Parse final meta: "final:<code>:<elapsed>" or "final:timeout"
-                    rc: int | None = None
-                    elapsed: float | None = None
-                    timeout_flag = False
-                    try:
-                        parts = (final_meta or "").split(":")
-                        if len(parts) >= 2 and parts[1] == "timeout":
-                            timeout_flag = True
-                        elif len(parts) >= 3:
-                            rc = int(parts[1])
-                            elapsed = float(parts[2])
-                    except Exception:
-                        pass
-                    yield AgentEvent.tool_result(
-                        tool_name,
-                        tool_call.id,
-                        "",
-                        bool(final_response.is_error),
-                        True,
-                        tool_returncode=rc,
-                        tool_elapsed=elapsed,
-                        tool_timeout=timeout_flag,
-                    )
-                    # --- Hook: PostToolUse / PostToolUseFailure (streaming) ---
-                    if self._hook_engine:
-                        _post_event = (
-                            HookEvent.PostToolUseFailure
-                            if final_response.is_error or timeout_flag
-                            else HookEvent.PostToolUse
-                        )
-                        await self._hook_engine.fire(
-                            _post_event,
-                            match_value=tool_name,
-                            context={
-                                "session_id": session_id,
-                                "tool_call_id": tool_call.id,
-                                "tool_name": tool_name,
-                                "tool_input": tool_call.get_input_dict(),
-                                "tool_output": final_response.content,
-                                "tool_returncode": rc,
-                                "tool_elapsed": elapsed,
-                            },
-                            provider=self._provider,
-                            working_directory=self._working_directory,
-                            suppress_agent_hooks=True,
-                        )
-                    try:
-                        provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
-                        model_name = str(getattr(self._provider, "model", "") or "")
-                        reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                        record_tool_observation(
-                            self._settings,
-                            phase="tool_complete",
-                            session_id=session_id,
-                            tool_name=tool_name,
-                            tool_call_id=tool_call.id,
-                            tool_input=tool_call.get_input_dict(),
-                            tool_output=final_response.content,
-                            is_error=bool(final_response.is_error or timeout_flag),
-                            source_provider=str(provider_name),
-                            source_model=model_name,
-                            reasoning_effort=reasoning_effort,
-                        )
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        response = await asyncio.wait_for(
-                            tool.run(tool_call, context),
-                            timeout=TOOL_TIMEOUT,
-                        )
-                    except asyncio.TimeoutError:
-                        _timeout_msg = f"Tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
-                        results.append(
-                            _persisted_tool_result_dict(tool_call, _timeout_msg, True)
-                        )
-                        yield AgentEvent.tool_result(tool_name, tool_call.id, _timeout_msg, True, True, tool_timeout=True)
-                        continue
-                    _clean_resp = sanitize_text(response.content or "")
-                    _clean_resp = self._maybe_save_artifact(session_id, tool_call.id, _clean_resp)
-                    results.append(
-                        _persisted_tool_result_dict(
-                            tool_call, _clean_resp, response.is_error
-                        )
-                    )
-                    yield AgentEvent.tool_result(
-                        tool_name,
-                        tool_call.id,
-                        _clean_resp,
-                        response.is_error,
-                        True,
-                    )
-                    # --- Hook: PostToolUse / PostToolUseFailure (non-streaming) ---
-                    if self._hook_engine:
-                        _post_event = (
-                            HookEvent.PostToolUseFailure if response.is_error else HookEvent.PostToolUse
-                        )
-                        await self._hook_engine.fire(
-                            _post_event,
-                            match_value=tool_name,
-                            context={
-                                "session_id": session_id,
-                                "tool_call_id": tool_call.id,
-                                "tool_name": tool_name,
-                                "tool_input": tool_call.get_input_dict(),
-                                "tool_output": response.content,
-                            },
-                            provider=self._provider,
-                            working_directory=self._working_directory,
-                            suppress_agent_hooks=True,
-                        )
-                    try:
-                        provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
-                        model_name = str(getattr(self._provider, "model", "") or "")
-                        reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                        record_tool_observation(
-                            self._settings,
-                            phase="tool_complete",
-                            session_id=session_id,
-                            tool_name=tool_name,
-                            tool_call_id=tool_call.id,
-                            tool_input=tool_call.get_input_dict(),
-                            tool_output=response.content,
-                            is_error=bool(response.is_error),
-                            source_provider=str(provider_name),
-                            source_model=model_name,
-                            reasoning_effort=reasoning_effort,
-                        )
-                    except Exception:
-                        pass
                 await asyncio.sleep(0)
-            except Exception as e:
-                err = f"Error executing tool: {e}"
-                results.append(_persisted_tool_result_dict(tool_call, err, True))
-                yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
-                await asyncio.sleep(0)
+                return
+
+            # Optional streaming path (e.g., bash stdout)
+            if hasattr(tool, "run_stream") and callable(getattr(tool, "run_stream")):
+                final_response = None
+                final_meta = ""
+                async for partial in tool.run_stream(tool_call, context):  # type: ignore[attr-defined]
+                    meta = (partial.metadata or "").lower()
+                    if meta.startswith("final"):
+                        final_response = partial
+                        final_meta = meta
+                        break
+                    # stream chunk
+                    if partial.content:
+                        stream = meta if meta in ("stdout", "stderr") else None
+                        yield AgentEvent.tool_result(
+                            tool_name,
+                            tool_call.id,
+                            partial.content,
+                            False,
+                            False,
+                            tool_stream=stream,
+                        )
+                        await asyncio.sleep(0)
+
+                if final_response is None:
+                    # Fallback if stream didn't provide final marker
+                    final_response = await tool.run(tool_call, context)
+
+                _clean_content = sanitize_text(final_response.content or "")
+                _clean_content = self._maybe_save_artifact(session_id, tool_call.id, _clean_content)
+                results_fragment.append(
+                    _persisted_tool_result_dict(
+                        tool_call, _clean_content, final_response.is_error
+                    )
+                )
+                # Parse final meta: "final:<code>:<elapsed>" or "final:timeout"
+                rc: int | None = None
+                elapsed: float | None = None
+                timeout_flag = False
+                try:
+                    parts = (final_meta or "").split(":")
+                    if len(parts) >= 2 and parts[1] == "timeout":
+                        timeout_flag = True
+                    elif len(parts) >= 3:
+                        rc = int(parts[1])
+                        elapsed = float(parts[2])
+                except Exception:
+                    pass
+                yield AgentEvent.tool_result(
+                    tool_name,
+                    tool_call.id,
+                    "",
+                    bool(final_response.is_error),
+                    True,
+                    tool_returncode=rc,
+                    tool_elapsed=elapsed,
+                    tool_timeout=timeout_flag,
+                )
+                # --- Hook: PostToolUse / PostToolUseFailure (streaming) ---
+                if self._hook_engine:
+                    _post_event = (
+                        HookEvent.PostToolUseFailure
+                        if final_response.is_error or timeout_flag
+                        else HookEvent.PostToolUse
+                    )
+                    await self._hook_engine.fire(
+                        _post_event,
+                        match_value=tool_name,
+                        context={
+                            "session_id": session_id,
+                            "tool_call_id": tool_call.id,
+                            "tool_name": tool_name,
+                            "tool_input": tool_call.get_input_dict(),
+                            "tool_output": final_response.content,
+                            "tool_returncode": rc,
+                            "tool_elapsed": elapsed,
+                        },
+                        provider=self._provider,
+                        working_directory=self._working_directory,
+                        suppress_agent_hooks=True,
+                    )
+                try:
+                    provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
+                    model_name = str(getattr(self._provider, "model", "") or "")
+                    reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
+                    record_tool_observation(
+                        self._settings,
+                        phase="tool_complete",
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        tool_call_id=tool_call.id,
+                        tool_input=tool_call.get_input_dict(),
+                        tool_output=final_response.content,
+                        is_error=bool(final_response.is_error or timeout_flag),
+                        source_provider=str(provider_name),
+                        source_model=model_name,
+                        reasoning_effort=reasoning_effort,
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    response = await asyncio.wait_for(
+                        tool.run(tool_call, context),
+                        timeout=TOOL_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    _timeout_msg = f"Tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
+                    results_fragment.append(
+                        _persisted_tool_result_dict(tool_call, _timeout_msg, True)
+                    )
+                    yield AgentEvent.tool_result(tool_name, tool_call.id, _timeout_msg, True, True, tool_timeout=True)
+                    return
+                _clean_resp = sanitize_text(response.content or "")
+                _clean_resp = self._maybe_save_artifact(session_id, tool_call.id, _clean_resp)
+                results_fragment.append(
+                    _persisted_tool_result_dict(
+                        tool_call, _clean_resp, response.is_error
+                    )
+                )
+                yield AgentEvent.tool_result(
+                    tool_name,
+                    tool_call.id,
+                    _clean_resp,
+                    response.is_error,
+                    True,
+                )
+                # --- Hook: PostToolUse / PostToolUseFailure (non-streaming) ---
+                if self._hook_engine:
+                    _post_event = (
+                        HookEvent.PostToolUseFailure if response.is_error else HookEvent.PostToolUse
+                    )
+                    await self._hook_engine.fire(
+                        _post_event,
+                        match_value=tool_name,
+                        context={
+                            "session_id": session_id,
+                            "tool_call_id": tool_call.id,
+                            "tool_name": tool_name,
+                            "tool_input": tool_call.get_input_dict(),
+                            "tool_output": response.content,
+                        },
+                        provider=self._provider,
+                        working_directory=self._working_directory,
+                        suppress_agent_hooks=True,
+                    )
+                try:
+                    provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
+                    model_name = str(getattr(self._provider, "model", "") or "")
+                    reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
+                    record_tool_observation(
+                        self._settings,
+                        phase="tool_complete",
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        tool_call_id=tool_call.id,
+                        tool_input=tool_call.get_input_dict(),
+                        tool_output=response.content,
+                        is_error=bool(response.is_error),
+                        source_provider=str(provider_name),
+                        source_model=model_name,
+                        reasoning_effort=reasoning_effort,
+                    )
+                except Exception:
+                    pass
+            await asyncio.sleep(0)
+        except Exception as e:
+            err = f"Error executing tool: {e}"
+            results_fragment.append(_persisted_tool_result_dict(tool_call, err, True))
+            yield AgentEvent.tool_result(tool_name, tool_call.id, err, True, True)
+            await asyncio.sleep(0)
+
 
     async def _create_user_message(
         self,
