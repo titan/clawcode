@@ -13,18 +13,37 @@ class PlanPanel(Vertical):
         super().__init__(*args, **kwargs)
         self._pulse_frame: int = 0
         self._state: dict | None = None
+        self._pulse_timer = None  # running only while is_building=True
         # Hidden until ChatScreen._refresh_plan_panel sets display from plan state
         # (avoids Build/Stop/Retry flashing during TUI startup before async init).
         self.display = False
 
     def on_mount(self) -> None:
-        self.set_interval(0.35, self._on_pulse)
+        # Timer is started on-demand in set_plan() when a build begins.
+        pass
 
     def _on_pulse(self) -> None:
         if not self._state or not bool(self._state.get("is_building")):
+            self._stop_pulse()
             return
         self._pulse_frame = (self._pulse_frame + 1) % 7
         self._render_from_state()
+
+    def _start_pulse(self) -> None:
+        """Start the animation timer if not already running."""
+        if self._pulse_timer is not None:
+            return
+        self._pulse_timer = self.set_interval(0.35, self._on_pulse)
+
+    def _stop_pulse(self) -> None:
+        """Stop the animation timer and release the resource."""
+        if self._pulse_timer is None:
+            return
+        try:
+            self._pulse_timer.stop()
+        except Exception:
+            pass
+        self._pulse_timer = None
 
     def compose(self):
         yield Static("", id="plan_panel_title")
@@ -68,6 +87,11 @@ class PlanPanel(Vertical):
             "status_text": status_text,
             "running_task_title": running_task_title,
         }
+        # Start / stop the pulse animation timer on demand.
+        if is_building:
+            self._start_pulse()
+        else:
+            self._stop_pulse()
         self._render_from_state()
 
     def _render_from_state(self) -> None:

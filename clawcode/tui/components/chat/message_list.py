@@ -621,7 +621,8 @@ class _AssistantMessageWidget(_MessageWidget):
     }
     """
 
-    _REFRESH_INTERVAL = 0.06
+    # 100ms throttle: reduces Markdown re-parse frequency from ~16/s to ~10/s.
+    _REFRESH_INTERVAL = 0.10
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__("assistant", **kwargs)
@@ -630,32 +631,55 @@ class _AssistantMessageWidget(_MessageWidget):
         self._finalized = False
         self._last_render_at: float = 0.0
         self._pending_refresh = False
+        # Cached joined content string to avoid repeated O(n) join.
+        self._cached_content: str = ""
+        self._content_dirty: bool = False
 
     def append_content(self, content: str) -> None:
         """Append content (throttled refresh to avoid O(n^2) Markdown re-parse)."""
         self._content.append(content)
+        self._content_dirty = True
         now = time.monotonic()
         if now - self._last_render_at >= self._REFRESH_INTERVAL:
             self._last_render_at = now
             self._pending_refresh = False
-            self.refresh(layout=True)
-        else:
+            # layout=False during streaming: content grows inside fixed height widget;
+            # only finalize() needs a layout pass.
+            self.refresh(layout=False)
+        elif not self._pending_refresh:
             self._pending_refresh = True
+            # Guarantee the pending content reaches the screen even if the stream
+            # stalls before the next append (e.g. slow models, end of chunk).
+            self.call_later(self._flush_pending_refresh)
+
+    def _flush_pending_refresh(self) -> None:
+        """Consume a pending refresh that wasn't covered by the throttle window."""
+        if not self._pending_refresh:
+            return
+        self._pending_refresh = False
+        self._last_render_at = time.monotonic()
+        self.refresh(layout=False)
 
     def add_tool_call(self, tool_name: str, tool_input: dict | str) -> None:
         self._tool_calls.append((tool_name, tool_input))
+        # Tool calls change widget height — layout pass needed.
         self.refresh(layout=True)
 
     def finalize(self, message: Any | None = None) -> None:
         self._finalized = True
         self._pending_refresh = False
+        # Final render must recalculate height (streaming layout=False left it stale).
         self.refresh(layout=True)
 
     def render(self) -> RenderableType:
         parts: list[RenderableType] = []
 
         if self._content:
-            content = _normalize_display_text("".join(self._content))
+            # Re-join only when content has changed since last render.
+            if self._content_dirty:
+                self._cached_content = _normalize_display_text("".join(self._content))
+                self._content_dirty = False
+            content = self._cached_content
             c = _active_chat()
             md_kw: dict[str, Any] = {"code_theme": c.markdown_code_theme}
             if c.markdown_inline_code_theme is not None:
@@ -904,9 +928,10 @@ class _ToolResultWidget(_MessageWidget):
         self._elapsed: float | None = None
         self._timeout: bool = False
         self._pulse_frame: int = 0
+        self._pulse_timer = None  # saved so finalize() can stop it
 
     def on_mount(self) -> None:
-        self.set_interval(0.35, self._on_pulse)
+        self._pulse_timer = self.set_interval(0.35, self._on_pulse)
 
     def _on_pulse(self) -> None:
         if self._finalized:
@@ -925,16 +950,25 @@ class _ToolResultWidget(_MessageWidget):
         now = time.monotonic()
         if now - self._last_render_at >= 0.05:
             self._last_render_at = now
-            self.refresh(layout=True)
+            # layout=False during streaming: panel border/title height is fixed.
+            self.refresh(layout=False)
 
     def set_error(self, is_error: bool) -> None:
         self.is_error = is_error
-        self.refresh(layout=True)
+        # Merge into next regular refresh; avoid an extra layout pass here.
+        self.refresh(layout=False)
 
     def finalize(self) -> None:
         if self._finalized:
             return
         self._finalized = True
+        # Stop the pulse timer — no more animation frames needed.
+        if self._pulse_timer is not None:
+            try:
+                self._pulse_timer.stop()
+            except Exception:
+                pass
+            self._pulse_timer = None
         if self.is_mounted:
             self.refresh(layout=True)
 

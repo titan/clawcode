@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import time
+
 from textual import events
 from textual.message import Message
 from textual.widget import Widget
+
+# Safety timeout: if mouse_up is never received (e.g. cursor leaves terminal),
+# auto-release capture after this many seconds to restore normal click behaviour.
+_CAPTURE_TIMEOUT_S = 5.0
 
 
 class RightPanelWidthDrag(Message):
@@ -39,6 +45,16 @@ class RightPanelGrip(Widget):
         self._dragging = False
         self._start_screen_x: int = 0
         self._start_width: int = 36
+        self._capture_start_at: float = 0.0
+
+    def _release_drag(self) -> None:
+        """Unconditionally end a drag and release mouse capture."""
+        self._dragging = False
+        self._capture_start_at = 0.0
+        try:
+            self.release_mouse()
+        except Exception:
+            pass
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         if event.button != 1:
@@ -50,7 +66,22 @@ class RightPanelGrip(Widget):
             self._start_width = 36
         self._start_screen_x = int(event.screen_x)
         self._dragging = True
+        self._capture_start_at = time.monotonic()
         self.capture_mouse()
+        # Schedule a safety timeout so capture can't be held forever.
+        self.set_timer(_CAPTURE_TIMEOUT_S, self._safety_release)
+
+    def _safety_release(self) -> None:
+        """Release mouse capture if the drag is still active after the timeout."""
+        if not self._dragging:
+            return
+        try:
+            rpc = self.screen.query_one("#right_panel_container")
+            final_w = int(rpc.size.width)
+        except Exception:
+            final_w = self._start_width
+        self._release_drag()
+        self.post_message(RightPanelWidthCommit(final_w))
 
     def on_mouse_move(self, event: events.MouseMove) -> None:
         if not self._dragging:
@@ -61,15 +92,24 @@ class RightPanelGrip(Widget):
 
     def on_mouse_up(self, event: events.MouseUp) -> None:
         if not self._dragging:
+            # Defensively attempt release even when state is inconsistent.
+            try:
+                self.release_mouse()
+            except Exception:
+                pass
             return
-        self._dragging = False
-        self.release_mouse()
         try:
             rpc = self.screen.query_one("#right_panel_container")
             final_w = int(rpc.size.width)
         except Exception:
             final_w = self._start_width
+        self._release_drag()
         self.post_message(RightPanelWidthCommit(final_w))
+
+    def on_mouse_capture_lost(self) -> None:
+        """Called by Textual when mouse capture is taken away externally."""
+        self._dragging = False
+        self._capture_start_at = 0.0
 
 
 __all__ = [

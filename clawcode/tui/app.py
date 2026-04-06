@@ -101,16 +101,19 @@ class ClawCodeApp(App):
 
         - Enabled: buttons clickable (default)
         - Disabled: terminal-native selection works everywhere
+
+        State is only flipped when the driver call actually succeeds, keeping
+        _mouse_mode_enabled in sync with the real tracking state.
         """
         driver = getattr(self, "_driver", None)
         if driver is None:
             return
 
-        self._mouse_mode_enabled = not self._mouse_mode_enabled
+        desired = not self._mouse_mode_enabled
         applied = False
         try:
             # Private driver APIs; use best-effort to support multiple Textual versions.
-            if self._mouse_mode_enabled:
+            if desired:
                 enable = getattr(driver, "_enable_mouse_support", None) or getattr(driver, "enable_mouse_support", None)
                 if callable(enable):
                     enable()
@@ -122,6 +125,12 @@ class ClawCodeApp(App):
                     applied = True
         except Exception:
             pass
+
+        # Only update the tracked state when the driver call succeeded; this
+        # prevents the status bar from showing "Mouse mode: OFF" while Textual
+        # is still capturing mouse events (mismatch causes buttons to appear dead).
+        if applied:
+            self._mouse_mode_enabled = desired
 
         try:
             status = "ON" if self._mouse_mode_enabled else "OFF"
@@ -186,13 +195,19 @@ class ClawCodeApp(App):
         self._permission_queue: asyncio.Queue[tuple[PermissionRequest, asyncio.Future[None]]] = asyncio.Queue()
         self._permission_worker: asyncio.Task[None] | None = None
 
+        # Maximum time (seconds) to wait for the user to respond to a permission
+        # dialog before auto-denying.  Prevents the queue from stalling forever if
+        # the dialog is closed externally (e.g. app restart, screen pop).
+        _PERMISSION_DIALOG_TIMEOUT_S = 60.0
+
         async def drain_permission_queue() -> None:
             while True:
                 req, waiter = await self._permission_queue.get()
                 # Snapshot before pushing the modal: after push, app.screen is the dialog,
                 # and on shutdown the stack may be empty — never call _get_chat_screen() in finally.
                 chat_snapshot = self._get_chat_screen()
-                dialog_done = asyncio.get_running_loop().create_future()
+                loop = asyncio.get_running_loop()
+                dialog_done: asyncio.Future[None] = loop.create_future()
 
                 def on_dialog_closed(result: object) -> None:
                     if result is True:
@@ -213,7 +228,29 @@ class ClawCodeApp(App):
                         on_dialog_closed,
                     )
                     await mount
-                    await dialog_done
+                    # Wait with timeout so a stalled dialog never blocks the queue.
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(dialog_done),
+                            timeout=_PERMISSION_DIALOG_TIMEOUT_S,
+                        )
+                    except asyncio.TimeoutError:
+                        # Auto-deny on timeout; ensure dialog_done is resolved so
+                        # any concurrent waiter unblocks cleanly.
+                        req.status = PermissionStatus.DENIED
+                        if not dialog_done.done():
+                            dialog_done.set_result(None)
+                        # Best-effort: dismiss the dialog if still on screen.
+                        try:
+                            if hasattr(self.screen, "dismiss"):
+                                self.screen.dismiss(False)
+                        except Exception:
+                            pass
+                except Exception:
+                    # Catch push_screen / mount failures; treat as deny.
+                    req.status = PermissionStatus.DENIED
+                    if not dialog_done.done():
+                        dialog_done.set_result(None)
                 finally:
                     if chat_snapshot and getattr(req, "session_id", None):
                         try:

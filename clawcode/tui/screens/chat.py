@@ -402,6 +402,11 @@ class ChatScreen(Screen):
         # Approximate output chars (fallback when provider gives no streaming usage).
         self._hud_turn_output_chars: int = 0
 
+        # Dirty-flag for batched HUD status bar refresh (avoids per-event full redraws).
+        self._hud_dirty: bool = False
+        # Track which chrome mode was last fully applied to avoid redundant re-paints.
+        self._last_chrome_mode: str = ""
+
     def _clamp_right_panel_width(self, w: int) -> int:
         w = int(w)
         try:
@@ -1145,10 +1150,14 @@ class ChatScreen(Screen):
             self._get_plan_state(session.id, create=True)
             self._hydrate_plan_state_from_disk(session.id)
 
-            # Initial display mode (from App preference or settings default)
+            # Initial display mode (from App preference or settings default).
+            # Guard: only re-apply if the resolved mode differs from what on_mount()
+            # already applied, to avoid a redundant chrome repaint + full layout pass.
             app_mode = getattr(self.app, "display_mode", None)
-            self._display_mode = str(app_mode or getattr(self.settings.tui, "display_mode", "opencode") or "opencode").lower()
-            self._apply_display_mode(self._display_mode)
+            resolved_mode = str(app_mode or getattr(self.settings.tui, "display_mode", "opencode") or "opencode").lower()
+            if resolved_mode != self._display_mode:
+                self._display_mode = resolved_mode
+                self._apply_display_mode(self._display_mode)
 
             # Wire sidebar and refresh
             sidebar = self.query_one("#sidebar", Sidebar)
@@ -1448,6 +1457,24 @@ class ChatScreen(Screen):
         except Exception:
             pass
 
+    def _mark_hud_dirty(self) -> None:
+        """Mark HUD as needing a refresh; schedules a single lazy flush via call_later.
+
+        Replaces direct _update_status_bars() calls in hot paths (USAGE, CONTENT_DELTA,
+        TOOL_USE, TOOL_RESULT) to batch multiple rapid agent events into one repaint.
+        """
+        if self._hud_dirty:
+            return  # flush already queued
+        self._hud_dirty = True
+        self.call_later(self._flush_hud_if_dirty)
+
+    def _flush_hud_if_dirty(self) -> None:
+        """Consume the pending HUD dirty flag and repaint the status bars."""
+        if not self._hud_dirty:
+            return
+        self._hud_dirty = False
+        self._update_status_bars()
+
     def _start_processing_indicator(self) -> None:
         if self._processing_timer is not None:
             return
@@ -1617,7 +1644,11 @@ class ChatScreen(Screen):
         return self.query_one("#opencode_input", OpenCodeInput)
 
     def _apply_display_mode_chrome(self, mode: str) -> None:
-        """Apply per-mode shell colors and conversation Rich palette; refresh lists."""
+        """Apply per-mode shell colors and conversation Rich palette; refresh lists.
+
+        Skips the expensive refresh_message_lists_on_screen() call when the same
+        chrome mode is re-applied (e.g. on_mount then _initialize with identical mode).
+        """
         from ..styles.display_mode_styles import resolve_chrome
 
         set_conversation_style_for_mode(mode)
@@ -1819,7 +1850,12 @@ class ChatScreen(Screen):
         except Exception:
             pass
 
-        refresh_message_lists_on_screen(self)
+        # Only trigger a full MessageList layout pass when the chrome mode actually
+        # changes.  Duplicate calls (e.g. on_mount → _initialize with same mode) skip
+        # this expensive step, eliminating one source of first-frame flicker.
+        if mode != self._last_chrome_mode:
+            self._last_chrome_mode = mode
+            refresh_message_lists_on_screen(self)
 
     def _apply_display_mode(self, mode: str) -> None:
         mode = (mode or "opencode").lower()
@@ -3567,7 +3603,7 @@ class ChatScreen(Screen):
                 if is_visible_session and event.usage:
                     self._hud_turn_input_tokens += event.usage.input_tokens
                     self._hud_turn_output_tokens += event.usage.output_tokens
-                    self._update_status_bars()
+                    self._mark_hud_dirty()
 
             case AgentEventType.THINKING:
                 message_list.update_thinking(event.content or "")
@@ -3579,7 +3615,7 @@ class ChatScreen(Screen):
                     prev = self._hud_turn_output_chars
                     self._hud_turn_output_chars += len(event.content)
                     if self._hud_turn_output_chars // 80 > prev // 80:
-                        self._update_status_bars()
+                        self._mark_hud_dirty()
                 _mark_background_output()
 
             case AgentEventType.TOOL_USE:
@@ -3663,7 +3699,7 @@ class ChatScreen(Screen):
                                 updated = True
 
                     if updated:
-                        self._update_status_bars()
+                        self._mark_hud_dirty()
 
                 if (
                     is_visible_session
@@ -3675,7 +3711,7 @@ class ChatScreen(Screen):
                     self._hud_running_tools[event.tool_call_id] = HudRunningTool(
                         name=event.tool_name, target=tgt
                     )
-                    self._update_status_bars()
+                    self._mark_hud_dirty()
 
                 if event.tool_name and not hud_only:
                     message_list.add_tool_call(
@@ -3755,7 +3791,7 @@ class ChatScreen(Screen):
                                 entry.end_time = time.monotonic()
                                 hud_dirty = True
                 if hud_dirty:
-                    self._update_status_bars()
+                    self._mark_hud_dirty()
 
                 if event.tool_name and not hud_only:
                     message_list.add_tool_result(
