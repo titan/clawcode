@@ -5,10 +5,16 @@
 <h1 align="center">ClawCode</h1>
 
 <p align="center">
-  <strong>Your creative dev tool , AI cording Swiss Army knife</strong>
+  <strong>Your creative dev tool , AI coding Swiss Army knife</strong>
 </p>
 
 <p align="center">
+  <a href="https://github.com/deepelementlab/clawcode/releases">
+   <img
+     src="https://img.shields.io/static/v1?style=flat&label=release&labelColor=6A737D&color=fe7d37&message=v0.1.0"
+     alt="Release v0.1.0"
+   />
+  </a>
   <a href="#license"><img src="https://img.shields.io/badge/license-GPL%20OR%20Apache%202.0-blue.svg" alt="License: GPL-3.0" /></a>
   <a href="https://github.com/deepelementlab/clawcode/wiki"><img src="https://img.shields.io/badge/Wiki-documentation-26A5E4?style=flat&logo=github&logoColor=white"alt="Documentation Wiki"/></a>
   <a href="https://gitcgr.com/deepelementlab/clawcode">
