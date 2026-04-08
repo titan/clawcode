@@ -5,12 +5,44 @@ This module provides tools for viewing file contents and listing directories.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
 
 from .base import BaseTool, ToolInfo, ToolCall, ToolResponse, ToolContext
 from ...utils.text import sanitize_text
+
+
+def _read_lines_sync(
+    path: Path, offset: int, limit: int
+) -> list[str]:
+    """Read lines from *path* with offset/limit, using binary seek for large offsets."""
+    with open(path, "rb") as fb:
+        if offset > 0:
+            if offset > 500:
+                pos = 0
+                data = fb.read()
+                for _ in range(offset):
+                    nl = data.find(b"\n", pos)
+                    if nl == -1:
+                        return []
+                    pos = nl + 1
+                remainder = data[pos:]
+            else:
+                lines_skipped = 0
+                while lines_skipped < offset:
+                    if fb.readline() == b"":
+                        return []
+                    lines_skipped += 1
+                remainder = fb.read()
+        else:
+            remainder = fb.read()
+    text = remainder.decode("utf-8", errors="replace")
+    all_lines = text.splitlines()
+    if limit > 0:
+        all_lines = all_lines[:limit]
+    return [ln.rstrip("\r") for ln in all_lines]
 
 
 def _workspace_root_guess() -> Path | None:
@@ -227,30 +259,12 @@ class ViewTool(BaseTool):
                 is_error=True,
             )
 
-        # Read file
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                if offset > 0:
-                    # Skip to offset
-                    for _ in range(offset):
-                        if f.readline() == "":
-                            break
-
-                lines = []
-                if limit > 0:
-                    for _ in range(limit):
-                        line = f.readline()
-                        if line == "":
-                            break
-                        lines.append(line.rstrip("\n\r"))
-                else:
-                    lines = [line.rstrip("\n\r") for line in f.readlines()]
-
-                return ToolResponse(
-                    content=sanitize_text("\n".join(lines)),
-                    metadata=f"Read {len(lines)} lines from {file_path}",
-                )
-
+            lines = await asyncio.to_thread(_read_lines_sync, path, offset, limit)
+            return ToolResponse(
+                content=sanitize_text("\n".join(lines)),
+                metadata=f"Read {len(lines)} lines from {file_path}",
+            )
         except Exception as e:
             return ToolResponse(
                 content=f"Error reading file: {e}",
@@ -258,6 +272,76 @@ class ViewTool(BaseTool):
             )
 
     # Path resolution delegated to module-level resolve_tool_path()
+
+
+def create_batch_view_tool(permissions: Any = None) -> "BatchViewTool":
+    return BatchViewTool(permissions=permissions)
+
+
+class BatchViewTool(BaseTool):
+    """Read multiple files (or file sections) in a single tool call."""
+
+    def __init__(self, permissions: Any = None) -> None:
+        self._permissions = permissions
+
+    def info(self) -> ToolInfo:
+        return ToolInfo(
+            name="batch_view",
+            description=(
+                "Read multiple files in one call. Each entry can specify "
+                "offset (0-indexed line) and limit. More efficient than "
+                "multiple sequential view calls."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "file_path": {"type": "string"},
+                                "offset": {"type": "integer", "default": 0},
+                                "limit": {"type": "integer", "default": 0},
+                            },
+                            "required": ["file_path"],
+                        },
+                        "description": "List of files to read with optional offset/limit.",
+                    },
+                },
+                "required": ["files"],
+            },
+            required=["files"],
+        )
+
+    async def run(self, call: ToolCall, context: ToolContext) -> ToolResponse:
+        from .advanced import _coerce_tool_params
+
+        params = _coerce_tool_params(call)
+        files_spec = params.get("files")
+        if not isinstance(files_spec, list) or not files_spec:
+            return ToolResponse(content="Error: 'files' must be a non-empty array.", is_error=True)
+
+        async def _read_one(spec: dict) -> str:
+            fp = str(spec.get("file_path") or "")
+            off = int(spec.get("offset", 0) or 0)
+            lim = int(spec.get("limit", 0) or 0)
+            if not fp:
+                return f"--- (no file_path) ---\nError: missing file_path"
+            path = resolve_tool_path(fp, context.working_directory)
+            if not path.exists():
+                return f"--- {fp} ---\nError: File not found"
+            if not path.is_file():
+                return f"--- {fp} ---\nError: Not a file"
+            lines = await asyncio.to_thread(_read_lines_sync, path, off, lim)
+            header = f"--- {fp} L{off + 1}-{off + len(lines)} ({len(lines)} lines) ---"
+            return header + "\n" + "\n".join(lines)
+
+        parts = await asyncio.gather(*[_read_one(s) for s in files_spec])
+        return ToolResponse(
+            content=sanitize_text("\n\n".join(parts)),
+            metadata=f"Read {len(files_spec)} files",
+        )
 
 
 class LsTool(BaseTool):

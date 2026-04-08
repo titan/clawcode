@@ -888,14 +888,19 @@ class Agent:
                     pass
             self._active_requests.pop(session_id, None)
 
+    _READ_ONLY_TOOLS = frozenset({"view", "ls", "glob", "grep", "diagnostics"})
+
     def _should_parallelize_tool_calls(self, tool_calls: list[ToolCall]) -> bool:
-        """True when parallel gather is allowed (CLI-only batch, no stream/subagent)."""
+        """True when parallel gather is allowed for this batch of tool calls.
+
+        When ``permission_client`` is set (TUI), only batches consisting
+        entirely of read-only tools are eligible — those tools never trigger
+        a permission modal so parallel execution is safe.
+        """
         if len(tool_calls) < 2:
             return False
         st = self._settings
         if st is None or not bool(getattr(st, "parallel_tool_calls", False)):
-            return False
-        if self._permission_client is not None:
             return False
         from .tools.subagent import AgentTool
 
@@ -906,6 +911,8 @@ class Agent:
             if isinstance(t, AgentTool):
                 return False
             if hasattr(t, "run_stream") and callable(getattr(t, "run_stream")):
+                return False
+            if self._permission_client is not None and tc.name not in self._READ_ONLY_TOOLS:
                 return False
         return True
 

@@ -390,17 +390,20 @@ class WriteTool(BaseTool):
                 )
 
         try:
+            _DIFF_SIZE_LIMIT = 100_000
+
             def _write_sync() -> tuple[int, int]:
-                # Create parent directories if needed
                 if create_dirs and path.parent != Path("."):
                     path.parent.mkdir(parents=True, exist_ok=True)
 
-                before = ""
                 existed = path.exists()
+                before = ""
                 if existed:
                     try:
-                        with open(path, "r", encoding="utf-8") as f:
-                            before = f.read()
+                        sz = path.stat().st_size
+                        if sz < _DIFF_SIZE_LIMIT:
+                            with open(path, "r", encoding="utf-8") as f:
+                                before = f.read()
                     except Exception:
                         before = ""
 

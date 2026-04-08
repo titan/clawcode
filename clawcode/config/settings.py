@@ -596,10 +596,10 @@ class Settings(BaseSettings):
     # Auto Compact
     auto_compact: bool = True
 
-    #: When True and safe (no interactive permission client, no streaming/subagent tools
-    #: in the batch), run multiple tool_calls from one assistant turn via asyncio.gather.
-    #: Default False; see docs/PARALLEL_TOOL_CALLS.md.
-    parallel_tool_calls: bool = False
+    #: When True and safe (no streaming/subagent tools in the batch, and either no
+    #: permission client or every tool is read-only), run multiple tool_calls from
+    #: one assistant turn via asyncio.gather.  See docs/PARALLEL_TOOL_CALLS.md.
+    parallel_tool_calls: bool = True
 
     # Context paths for loading project instructions
     context_paths: list[str] = Field(default_factory=lambda: list(DEFAULT_CONTEXT_PATHS))

@@ -923,6 +923,7 @@ class _ToolResultWidget(_MessageWidget):
         self._expanded = False
         self._last_render_at = 0.0
         self._command_line: str | None = None
+        self._tool_input: dict | str | None = None
         self._decoder = AnsiDecoder()
         self._returncode: int | None = None
         self._elapsed: float | None = None
@@ -973,6 +974,7 @@ class _ToolResultWidget(_MessageWidget):
             self.refresh(layout=True)
 
     def set_command(self, tool_input: dict | str) -> None:
+        self._tool_input = tool_input
         try:
             if isinstance(tool_input, dict):
                 file_key_map = {
@@ -999,6 +1001,44 @@ class _ToolResultWidget(_MessageWidget):
                 self._command_line = f"$ {str(tool_input)}"
         except Exception:
             self._command_line = None
+
+    def _one_line_summary(self) -> str:
+        """Cursor-style one-line summary for collapsed tool results."""
+        inp = self._tool_input if isinstance(self._tool_input, dict) else {}
+        plain = self.get_plain_text()
+        n_lines = len((self.result or "").strip().splitlines())
+
+        if self.tool_name == "view":
+            fp = inp.get("file_path") or inp.get("path") or ""
+            off = int(inp.get("offset", 0) or 0)
+            lim = int(inp.get("limit", 0) or 0)
+            if lim > 0:
+                return f"Read {fp} L{off + 1}-{off + lim}"
+            return f"Read {fp} L{off + 1}-{off + n_lines}" if n_lines else f"Read {fp}"
+        if self.tool_name == "grep":
+            pat = inp.get("pattern", "")
+            path = inp.get("path", ".") or "."
+            return f"Grepped {pat} in {path}"
+        if self.tool_name == "glob":
+            pat = inp.get("pattern", "")
+            path = inp.get("path", ".") or "."
+            return f"Searched files {pat} in {path}"
+        if self.tool_name == "ls":
+            path = inp.get("path", ".") or "."
+            return f"Listed {path}"
+        if self.tool_name == "bash":
+            cmd = str(inp.get("command", "") or "")
+            if len(cmd) > 60:
+                cmd = cmd[:57] + "..."
+            rc = f" (exit {self._returncode})" if self._returncode else ""
+            return f"Ran {cmd}{rc}"
+        if self.tool_name in ("write", "edit", "patch"):
+            fp = inp.get("file_path") or inp.get("path") or self.tool_name
+            summary, _ = self._split_summary_detail(plain)
+            return summary if summary else f"Wrote {fp}"
+        if self.tool_name == "diagnostics":
+            return "Ran diagnostics"
+        return self._command_line or self.tool_name
 
     def set_status(
         self,
@@ -1123,6 +1163,16 @@ class _ToolResultWidget(_MessageWidget):
 
         # Collapsed view
         if not self._expanded:
+            # Finalized one-line summary (Cursor-style compact display)
+            if self._finalized:
+                line_summary = self._one_line_summary()
+                err_mark = " ERR" if self.is_error else ""
+                st = self._status_str()
+                suffix = f"  ({st})" if st else ""
+                row = Text(f"  {icon}  {line_summary}{err_mark}{suffix}", style=c.txt_muted)
+                return row
+
+            # Still running — show progress panel
             body = Text()
 
             if is_bash and self._command_line:
@@ -1154,16 +1204,12 @@ class _ToolResultWidget(_MessageWidget):
                     )
 
             if not body.plain.strip():
-                body.append(
-                    "(no output yet)" if not self._finalized else "(empty)",
-                    style="dim",
-                )
+                body.append("(no output yet)", style="dim")
 
-            run_subtitle = running_dots if not self._finalized else None
             return Panel(
                 body,
                 title=title,
-                subtitle=run_subtitle,
+                subtitle=running_dots,
                 border_style=c.border_error if self.is_error else c.border,
                 padding=(0, 1),
             )

@@ -20,7 +20,7 @@ from .execute_code import create_execute_code_tool
 from .cronjob import create_cronjob_tool
 from .process_tool import create_process_tool
 from .terminal_tool import create_terminal_tool
-from .file_ops import create_ls_tool, create_view_tool
+from .file_ops import create_batch_view_tool, create_ls_tool, create_view_tool
 from .search import create_glob_tool, create_grep_tool
 from .advanced import (
     create_write_tool,
@@ -76,6 +76,7 @@ def get_builtin_tools(
         create_process_tool(permissions),
         create_terminal_tool(permissions),
         create_view_tool(permissions),
+        create_batch_view_tool(permissions),
         create_ls_tool(permissions),
         create_glob_tool(permissions),
         create_grep_tool(permissions),

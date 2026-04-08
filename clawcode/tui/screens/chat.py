@@ -1597,9 +1597,16 @@ class ChatScreen(Screen):
         """Start the dedicated deep_loop watchdog timer (idempotent)."""
         if self._deep_loop_monitor_timer is not None:
             return
-        self._deep_loop_monitor_timer = self.set_interval(
-            self._DEEP_LOOP_MONITOR_INTERVAL_S, self._run_deep_loop_watchdog
-        )
+        if not getattr(self, "is_mounted", False):
+            # Unit tests construct ChatScreen without mounting; avoid dangling Timer coroutines.
+            return
+        try:
+            self._deep_loop_monitor_timer = self.set_interval(
+                self._DEEP_LOOP_MONITOR_INTERVAL_S, self._run_deep_loop_watchdog
+            )
+        except RuntimeError:
+            # No running loop: deep loop still works without watchdog.
+            self._deep_loop_monitor_timer = None
 
     def _stop_deep_loop_monitor(self) -> None:
         """Stop the deep_loop watchdog timer only when no loops remain active."""
