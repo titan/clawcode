@@ -87,6 +87,9 @@ ClawCode is a creative dev tool aimed at real delivery.
 - **Execute “full-stack” engineering tasks end-to-end**  
   Beyond one-off codegen: planning, delegation, execution, verification, review, and structured learning.
 
+## Design
+Enable the model to gain a deeper understanding of product design aesthetics.
+
 ## Development assistance functions
 
 ### Architecture & review
