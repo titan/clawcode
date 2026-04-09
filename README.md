@@ -87,6 +87,18 @@ ClawCode is a creative dev tool aimed at real delivery.
 - **Execute “full-stack” engineering tasks end-to-end**  
   Beyond one-off codegen: planning, delegation, execution, verification, review, and structured learning.
 
+## Design
+Enable the model to gain a deeper understanding of product design aesthetics.
+
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/cb02297f-1319-4df6-ae7a-5e42790efc2c" />
+
+The demo and baseline now adopt the Google Stitch open-source standard. And The demo provides 55 open-source real-world brand case studies. The coder workflow extensively references them during UI design and coding; you are also free to use them selectively.
+
+| Path | Purpose |
+|------|---------|
+| [`UI/`](./.claw/design/UI/) | Curated **product / brand UI references** — each brand folder includes `DESIGN.md`, previews, and notes. See **[`UI/README.md`](./.claw/design/UI/README.md)** for the full catalog and links. |
+
+
 ## Development assistance functions
 
 ### Architecture & review
