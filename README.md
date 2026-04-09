@@ -89,6 +89,7 @@ ClawCode is a creative dev tool aimed at real delivery.
 
 ## Design
 Enable the model to gain a deeper understanding of product design aesthetics.
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/cb02297f-1319-4df6-ae7a-5e42790efc2c" />
 
 ## Development assistance functions
 
