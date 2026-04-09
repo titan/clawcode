@@ -149,20 +149,20 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 
 | 角色 ID | 中文角色 | 职责与典型产出 |
 | --- | --- | --- |
-| `clawteam-product-manager` | 产品经理 | 需求优先级、路线图与用户价值假设；输出可交付范围与验收口径 |
-| `clawteam-business-analyst` | 业务分析师 | 业务流程与规则澄清；输出需求说明、边界条件与业务验收要点 |
-| `clawteam-system-architect` | 系统架构师 | 架构方案与技术选型；输出模块划分、接口与非功能需求（性能、安全等） |
-| `clawteam-ui-ux-designer` | UI/UX 设计 | 交互与信息架构；输出页面/组件级体验与可用性约束 |
-| `clawteam-dev-manager` | 研发经理 | 研发节奏与依赖管理；输出排期风险、资源与里程碑对齐 |
-| `clawteam-team-lead` | 技术负责人 / TL | 技术决策与代码质量基线；输出分工方案、评审要点与集成策略 |
-| `clawteam-rnd-backend` | 后端研发 | 服务、API 与数据层实现；输出接口契约、持久化与业务逻辑落地 |
-| `clawteam-rnd-frontend` | 前端研发 | 界面与前端工程化；输出组件、状态管理与联调对接 |
-| `clawteam-rnd-mobile` | 移动端研发 | 移动客户端与跨端实现；输出端侧特性与发布相关约束 |
-| `clawteam-devops` | DevOps | CI/CD 与构建发布链路；输出流水线、制品与环境一致性 |
-| `clawteam-qa` | 质量保证（QA） | 测试策略与质量门禁；输出用例、回归范围与缺陷分级 |
-| `clawteam-sre` | 站点可靠性（SRE） | 可用性、容量与可观测性；输出 SLO、告警与运维 Runbook 要点 |
-| `clawteam-project-manager` | 项目经理 | 范围、进度与干系人沟通；输出里程碑、变更控制与状态同步 |
-| `clawteam-scrum-master` | Scrum Master | 迭代节奏与阻碍清除；输出站会/回顾类流程约束与协作规范 |
+| [`clawteam-product-manager`](./.claw/agents/clawteam-product-manager.md) | 产品经理 | 需求优先级、路线图与用户价值假设；输出可交付范围与验收口径 |
+| [`clawteam-business-analyst`](./.claw/agents/clawteam-business-analyst.md) | 业务分析师 | 业务流程与规则澄清；输出需求说明、边界条件与业务验收要点 |
+| [`clawteam-system-architect`](./.claw/agents/clawteam-system-architect.md)  | 系统架构师 | 架构方案与技术选型；输出模块划分、接口与非功能需求（性能、安全等） |
+| [`clawteam-ui-ux-designer`](./.claw/agents/clawteam-ui-ux-designer.md)  | UI/UX 设计 | 交互与信息架构；输出页面/组件级体验与可用性约束 |
+| [`clawteam-dev-manager`](./.claw/agents/clawteam-dev-manager.md) | 研发经理 | 研发节奏与依赖管理；输出排期风险、资源与里程碑对齐 |
+| [`clawteam-team-lead`](./.claw/agents/clawteam-team-lead.md)  | 技术负责人 / TL | 技术决策与代码质量基线；输出分工方案、评审要点与集成策略 |
+| [`clawteam-rnd-backend`](./.claw/agents/clawteam-rnd-backend.md) | 后端研发 | 服务、API 与数据层实现；输出接口契约、持久化与业务逻辑落地 |
+| [`clawteam-rnd-frontend`](./.claw/agents/clawteam-rnd-frontend.md) | 前端研发 | 界面与前端工程化；输出组件、状态管理与联调对接 |
+| [`clawteam-rnd-mobile`](./.claw/agents/clawteam-rnd-mobile.md) | 移动端研发 | 移动客户端与跨端实现；输出端侧特性与发布相关约束 |
+| [`clawteam-devops`](./.claw/agents/clawteam-devops.md)  | DevOps | CI/CD 与构建发布链路；输出流水线、制品与环境一致性 |
+| [`clawteam-qa`](./.claw/agents/clawteam-qa.md) | 质量保证（QA） | 测试策略与质量门禁；输出用例、回归范围与缺陷分级 |
+| [`clawteam-sre`](./.claw/agents/clawteam-sre.md) | 站点可靠性（SRE） | 可用性、容量与可观测性；输出 SLO、告警与运维 Runbook 要点 |
+| [`clawteam-project-manager`](./.claw/agents/clawteam-project-manager.md) | 项目经理 | 范围、进度与干系人沟通；输出里程碑、变更控制与状态同步 |
+| [`clawteam-scrum-master`](./.claw/agents/clawteam-scrum-master.md)  | Scrum Master | 迭代节奏与阻碍清除；输出站会/回顾类流程约束与协作规范 |
 
 短别名（如 `qa`、`sre`、`product-manager`）会映射到上表对应 `clawteam-*` 角色，详见 `docs/CLAWTEAM_SLASH_GUIDE.md`。
 
