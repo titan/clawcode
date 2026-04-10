@@ -95,15 +95,8 @@ def cli(
     logger = logger.bind(debug=debug)
 
     try:
-        launch_cwd = str(Path.cwd().resolve())
         working_dir = str(cwd) if cwd else ""
-        app_ctx = asyncio.run(
-            create_app(
-                working_dir=working_dir or None,
-                debug=debug,
-                launch_working_directory=launch_cwd,
-            )
-        )
+        app_ctx = asyncio.run(create_app(working_dir=working_dir or None, debug=debug))
 
         logger.info(
             "ClawCode initialized",

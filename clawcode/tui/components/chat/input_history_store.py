@@ -181,7 +181,8 @@ class InputHistoryStore:
         3. **Fuzzy substring** — entries containing *prefix* as substring
 
         Results are deduplicated and ordered by recency (most recent first).
-        Each item is the **full history line** (UI replaces the whole input).
+        Only the *completion tail* (the part after the prefix) is returned for
+        category 1; for categories 2–3 the **full text** is returned.
         """
         query = (prefix or "").strip()
         if not query or len(query) < 2:
