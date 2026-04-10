@@ -98,6 +98,8 @@ The demo and baseline now adopt the Google Stitch open-source standard. And The 
 |------|---------|
 | [`UI/`](./.claw/design/UI/) | Curated **product / brand UI references** — each brand folder includes `DESIGN.md`, previews, and notes. See **[`UI/README.md`](./.claw/design/UI/README.md)** for the full catalog and links. |
 
+<img width="1830" height="620" alt="image" src="https://github.com/user-attachments/assets/a77785c8-23e8-4678-a3c7-e541d1f12096" />
+
 
 ## Development assistance functions
 
