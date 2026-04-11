@@ -706,8 +706,13 @@ class ExecuteCodeTool(BaseTool):
             name="execute_code",
             description=(
                 "Unified execution entrypoint (Hermes-aligned). "
-                "Supports kind='shell' (runs a shell command) and kind='python' "
-                "(runs python code in a best-effort sandbox)."
+                "kind='shell' runs a shell command in the session shell. "
+                "kind='python' runs Python in a subprocess with a best-effort sandbox: "
+                "built-in open() is blocked (no direct file read/write); __import__ and "
+                "input() are blocked. To create or edit project files, use the top-level "
+                "`write` tool or kind='shell', or from Python call only the provided "
+                "helpers write_file(path, content) and read_file(path) (RPC to the host). "
+                "Do not use open() in kind='python'."
             ),
             parameters={
                 "type": "object",
@@ -715,11 +720,18 @@ class ExecuteCodeTool(BaseTool):
                     "kind": {
                         "type": "string",
                         "enum": ["shell", "python"],
-                        "description": "Execution kind.",
+                        "description": (
+                            "'shell' for a shell command; 'python' for sandboxed Python "
+                            "(no open/import/input; use write/bash or write_file/read_file "
+                            "helpers for files)."
+                        ),
                     },
                     "code": {
                         "type": "string",
-                        "description": "Shell command (kind=shell) or Python code (kind=python).",
+                        "description": (
+                            "Shell command when kind=shell. When kind=python: Python source; "
+                            "avoid open() and imports—use write_file/read_file for file access."
+                        ),
                     },
                     "timeout_s": {
                         "type": "number",

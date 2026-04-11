@@ -452,9 +452,7 @@ class Settings(BaseSettings):
     # Working directory (set programmatically)
     working_directory: str = Field(default="")
 
-    #: Directory where ``python -m clawcode`` was started (shell cwd). Used with ``-c`` /
-    #: ``--cwd`` so UI catalog at the host repo's ``.claw/design/UI/`` is still found
-    #: when the target project is another folder.
+    # Shell cwd when the CLI started (UI catalog lookup with ``-c`` target; set programmatically)
     cli_launch_directory: str = Field(default="")
 
     # Providers
@@ -611,10 +609,6 @@ class Settings(BaseSettings):
 
     # Context paths for loading project instructions
     context_paths: list[str] = Field(default_factory=lambda: list(DEFAULT_CONTEXT_PATHS))
-
-    # UI style orchestration (coder UI references)
-    ui_style_mode: Literal["off", "on"] = "off"
-    ui_style_default_slug: str = ""
 
     # Closed-loop optimization knobs
     closed_loop: ClosedLoopConfig = Field(default_factory=ClosedLoopConfig)
@@ -853,38 +847,6 @@ def append_context_path_to_clawcode_json(
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    return path
-
-
-def save_ui_style_mode_to_clawcode_json(
-    mode: Literal["off", "on"],
-    *,
-    working_directory: str = ".",
-) -> Path:
-    """Persist ``ui_style_mode`` in ``.clawcode.json`` using merge read/write."""
-    wd = Path(working_directory).expanduser().resolve()
-    path = wd / ".clawcode.json"
-    if not path.is_file():
-        alt = Settings._find_config_file()
-        path = alt if alt is not None else path
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            with open(path, encoding="utf-8") as f:
-                raw = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            raw = None
-        if raw is None:
-            data = {}
-        elif isinstance(raw, dict):
-            data = raw
-        else:
-            raise TypeError(f"Config root must be a JSON object, got {type(raw).__name__}")
-    data["ui_style_mode"] = mode
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
     return path
 
 

@@ -85,10 +85,12 @@ Footer {
 /* Input help */
 .input_help {
     dock: bottom;
-    height: 1;
+    height: 3;
+    min-height: 3;
     color: #565f89;
     padding: 0 1;
     text-align: right;
+    overflow: hidden;
 }
 
 /* Individual message */
@@ -184,10 +186,12 @@ Footer {
 
 /* Input help text */
 .input_help {
-    height: 1;
+    height: 3;
+    min-height: 3;
     align: right middle;
     color: #565f89;
     padding: 0 1;
+    overflow: hidden;
 }
 
 /* Buttons */

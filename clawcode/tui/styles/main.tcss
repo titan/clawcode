@@ -137,13 +137,15 @@ Footer {
     padding: 0 1;
 }
 
-/* Input help */
+/* Input help (three lines: send hint; slash/@; history shortcuts) */
 .input_help {
     dock: bottom;
-    height: 1;
+    height: 3;
+    min-height: 3;
     color: #92a0b4;
     padding: 0 1;
     text-align: left;
+    overflow: hidden;
 }
 
 /* Individual message (Claude Code-like compact spacing) */
@@ -214,10 +216,12 @@ Footer {
 
 /* Input help text */
 .input_help {
-    height: 1;
+    height: 3;
+    min-height: 3;
     align: right middle;
     color: #92a0b4;
     padding: 0 1;
+    overflow: hidden;
 }
 
 /* Buttons */

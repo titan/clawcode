@@ -130,6 +130,19 @@ class AnthropicProvider(BaseProvider):
         return None
 
     @staticmethod
+    def _streaming_tool_input_prefix(current_input: Any) -> str:
+        """Build prefix before concatenating ``input_json_delta`` ``partial_json`` chunks.
+
+        Anthropic streams tool JSON as string fragments that must concatenate to one JSON
+        object. When ``content_block_start`` sets ``input`` to an empty ``{}``, the
+        prefix must be **empty** — using ``json.dumps({})`` would yield ``"{}"``, which
+        prepended to the first fragment produces invalid JSON ``{}{"command":...}``.
+        """
+        if isinstance(current_input, dict):
+            return "" if not current_input else json.dumps(current_input)
+        return str(current_input or "")
+
+    @staticmethod
     def _thinking_from_block_delta(delta: Any) -> str | None:
         if delta is None:
             return None
@@ -328,15 +341,13 @@ class AnthropicProvider(BaseProvider):
                             continue
                         partial_json = getattr(delta, "partial_json", None)
                         if partial_json:
-                            raw = (
-                                json.dumps(current_tool.input)
-                                if isinstance(current_tool.input, dict)
-                                else str(current_tool.input or "")
+                            prefix = self._streaming_tool_input_prefix(
+                                current_tool.input
                             )
                             tools_by_index[block_index] = ToolCall(
                                 id=current_tool.id,
                                 name=current_tool.name,
-                                input=raw + str(partial_json),
+                                input=prefix + str(partial_json),
                                 finished=False,
                             )
                     continue

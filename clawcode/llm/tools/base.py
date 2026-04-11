@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
+from ..tool_call_normalize import normalize_tool_input_dict
+
 
 @dataclass
 class ToolInfo:
@@ -68,12 +70,15 @@ class ToolCall:
             Input parameters as dictionary
         """
         if isinstance(self.input, dict):
-            return self.input
+            return normalize_tool_input_dict(self.input, tool_name=self.name)
 
         try:
-            return json.loads(self.input)
+            parsed: Any = json.loads(self.input)
         except json.JSONDecodeError:
             return {"raw": self.input}
+        if isinstance(parsed, dict):
+            return normalize_tool_input_dict(parsed, tool_name=self.name)
+        return parsed
 
 
 @dataclass

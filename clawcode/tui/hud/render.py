@@ -35,6 +35,44 @@ def _escape_rich_markup(text: str) -> str:
     return (text or "").replace("[", "\\[").replace("]", "\\]")
 
 
+def _strip_rich_tags(text: str) -> str:
+    """Remove Rich markup tags for width calculation.
+    
+    Handles various Rich tag formats:
+    - [color]text[/] - color tags
+    - [bold]text[/bold] - style tags  
+    - [dim]text[/] - dim/bright tags
+    - \\[escaped\\] - escaped brackets (keep the inner content)
+    """
+    import re
+    # First, handle escaped brackets: convert \\[text\\] to [text] (keep content)
+    text = re.sub(r'\\\[', '[', text)
+    text = re.sub(r'\\\]', ']', text)
+    # Remove closing tags [/tag]
+    text = re.sub(r'\[/[^\]]*\]', '', text)
+    # Remove opening tags [tag] (including color, style, dim, etc.)
+    text = re.sub(r'\[[^\]]*\]', '', text)
+    return text
+
+
+def _display_width(text: str) -> int:
+    """Calculate display width accounting for CJK and special chars."""
+    width = 0
+    for char in _strip_rich_tags(text):
+        # CJK characters typically take 2 columns in terminals
+        if '\u4e00' <= char <= '\u9fff' or '\u3000' <= char <= '\u303f':
+            width += 2
+        # Box drawing and block characters
+        elif '\u2500' <= char <= '\u257f' or '\u2580' <= char <= '\u259f':
+            width += 1
+        # Emoji and symbols
+        elif ord(char) > 0x1f300:
+            width += 2
+        else:
+            width += 1
+    return width
+
+
 def _context_color_tag(percent: int) -> str:
     if percent >= 85:
         return "red"
@@ -49,7 +87,10 @@ def render_context_bar(percent: int) -> str:
     filled = max(0, min(10, filled))
     empty = 10 - filled
     color = _context_color_tag(percent)
-    return f"[{color}]{'█' * filled}[/][dim]{'·' * empty}[/]"
+    # Use standard ASCII characters for consistent terminal width
+    # Block characters like '█' (U+2588) can have inconsistent widths in some terminals
+    # Using '=' for filled and '-' for empty provides consistent 1-column width
+    return f"[{color}]{'=' * filled}[/][dim]{'-' * empty}[/]"
 
 
 def _format_duration(seconds: float) -> str:
@@ -83,7 +124,19 @@ def _format_elapsed(seconds: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _render_session_line(state: HudState, colors: HudColors) -> str:
+def _render_session_line(state: HudState, colors: HudColors, max_width: int = 120) -> str:
+    """Render session line with intelligent truncation to fit within max_width.
+    
+    Priority order (high to low):
+    1. Model name (essential)
+    2. Context bar + percent (essential)
+    3. clawcode.md count
+    4. rules count
+    5. MCPs count
+    6. hooks count
+    7. Duration
+    8. Project hint (most likely to be truncated)
+    """
     model = _escape_rich_markup(state.model or "Unknown")
     percent = max(0, min(100, state.context_percent))
 
@@ -93,22 +146,56 @@ def _render_session_line(state: HudState, colors: HudColors) -> str:
 
     cc = state.config_counts
     duration = state.session_duration.strip()
-
+    hint = (state.project_hint or "").strip()
+    
+    # Build line progressively, checking width at each step
     parts: List[str] = [
         f"[{colors.model}]\\[{model}][/]",
         bar,
         percent_tag,
+    ]
+    
+    # Helper to calculate actual display width by stripping Rich tags
+    def display_width(parts_list: List[str]) -> int:
+        # Join with separator and strip Rich tags to get actual display width
+        joined = " | ".join(parts_list)
+        plain = _strip_rich_tags(joined)
+        return len(plain)
+    
+    # Add optional parts if they fit
+    optional_parts = [
         f"[dim]{cc.claude_md_count} clawcode.md[/]",
         f"[dim]{cc.rules_count} rules[/]",
         f"[dim]{cc.mcp_count} MCPs[/]",
         f"[dim]{cc.hooks_count} hooks[/]",
     ]
-    hint = (state.project_hint or "").strip()
-    if hint:
-        parts.append(f"[dim]{_escape_rich_markup(hint)}[/]")
+    
+    for part in optional_parts:
+        test_parts = parts + [part]
+        if display_width(test_parts) <= max_width:
+            parts.append(part)
+    
+    # Try to add duration if it fits
     if duration:
-        parts.append(f"[dim]{duration}[/]")
-
+        duration_part = f"[dim]{duration}[/]"
+        test_parts = parts + [duration_part]
+        if display_width(test_parts) <= max_width:
+            parts.append(duration_part)
+    
+    # Add hint with truncation - this is lowest priority and most likely to be shortened
+    if hint:
+        # Calculate remaining space
+        current_width = display_width(parts)
+        separator_width = 3 if parts else 0
+        remaining = max_width - current_width - separator_width
+        
+        if remaining > 10:  # Only add if we have reasonable space
+            # Truncate hint to fit
+            max_hint_len = max(10, remaining - 5)  # Leave some margin
+            if len(hint) > max_hint_len:
+                hint = hint[:max_hint_len-3] + "..."
+            parts.append(f"[dim]{_escape_rich_markup(hint)}[/]")
+    
     return " | ".join(parts)
 
 
@@ -203,6 +290,24 @@ def _render_deep_loop_line(deep_loop_status: str, colors: HudColors) -> str:
     return f"[{colors.agent_type}]{escaped}[/]"
 
 
+def _clamp_line(line: str, max_width: int = 200) -> str:
+    """Clamp line to maximum display width, truncating with '...' if needed.
+    
+    Accounts for Rich markup tags which don't contribute to display width.
+    """
+    if not line:
+        return ""
+    
+    # Simple heuristic: if raw line length (including tags) is under limit, return as-is
+    if len(line) <= max_width:
+        return line
+    
+    # For longer lines, we need to truncate carefully preserving Rich tags
+    # A conservative approach: truncate the raw string and hope for the best
+    # The display width will be less than the raw length due to tags
+    return line[:max_width - 3] + "..."
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -221,7 +326,8 @@ def render_hud(state: HudState, *, now: float = 0.0, colors: HudColors | None = 
     Empty rows are blank (dark background, no placeholder characters).
     """
     c = colors or _DEFAULT_HUD_COLORS
-    lines: List[str] = [_render_session_line(state, c)]
+    # Session line with width constraint to prevent overflow (typical terminal width ~100-120)
+    lines: List[str] = [_render_session_line(state, c, max_width=100)]
 
     tools = _render_tools_line(state.tool_counts, state.running_tools, c)
     lines.append(tools or "")
@@ -246,5 +352,7 @@ def render_hud(state: HudState, *, now: float = 0.0, colors: HudColors | None = 
         lines.append("")
 
     lines = lines[:5]
+    # Final safety clamp to prevent any overflow causing border misalignment
+    lines = [_clamp_line(ln, max_width=200) for ln in lines]
     lines.append("")
     return "\n".join(lines)

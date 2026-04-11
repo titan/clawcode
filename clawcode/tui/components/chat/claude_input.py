@@ -13,13 +13,16 @@ from typing import Any
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+from textual import events
+
 from .input_area import (
     AttachmentList,
     AtSuggestStatic,
     MessageInput,
     PasteAwareTextArea,
-    SLASH_INPUT_HELP_SUFFIX,
     SlashSuggestStatic,
+    _truncate_help_line,
+    format_claude_input_help,
 )
 
 
@@ -63,8 +66,10 @@ class ClaudeCodeInput(MessageInput):
     ClaudeCodeInput .input_help {
         color: #6b6b80;
         text-align: left;
-        height: 1;
+        height: 3;
+        min-height: 3;
         padding: 0 1;
+        overflow: hidden;
     }
 
     ClaudeCodeInput #at_suggest {
@@ -98,11 +103,16 @@ class ClaudeCodeInput(MessageInput):
         super().__init__(**kwargs)
 
     def _update_mode_hint(self) -> None:
+        """Update the mode hint in the help line, truncating to container width."""
         try:
             hint = self.query_one("#input_mode_hint", Static)
-            base = "ctrl+s send | esc cancel" + SLASH_INPUT_HELP_SUFFIX
             mode = " [NORMAL]" if self._vim_mode == "normal" else ""
-            hint.update(base + mode)
+            full_text = format_claude_input_help(vim_normal_suffix=mode)
+            # Truncate each line to fit container width
+            container_width = max(40, int(self.size.width) - 2)  # -2 for padding
+            lines = full_text.split("\n")
+            truncated_lines = [_truncate_help_line(ln, container_width) for ln in lines]
+            hint.update("\n".join(truncated_lines))
         except Exception:
             pass
 
@@ -118,10 +128,18 @@ class ClaudeCodeInput(MessageInput):
                 classes="input_textarea",
             )
         yield Static(
-            "ctrl+s send | esc cancel",
+            format_claude_input_help(),
             classes="input_help",
             id="input_mode_hint",
         )
+
+    def on_mount(self) -> None:
+        self._update_mode_hint()
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Re-truncate help text when container width changes."""
+        _ = event
+        self._update_mode_hint()
 
 
 __all__ = ["ClaudeCodeInput"]

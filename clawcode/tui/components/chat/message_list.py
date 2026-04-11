@@ -209,6 +209,16 @@ class MessageList(ScrollableContainer):
         # True while the agent is actively generating (set by ChatScreen).
         # Suppresses the "New output" overlay entirely during streaming.
         self._agent_processing: bool = False
+        # Coalesce scroll-to-bottom work: streaming CONTENT_DELTA used to schedule one
+        # call_after_refresh per token, flooding the refresh queue and starving input on
+        # Windows terminals after long runs.
+        self._scroll_end_after_refresh_pending: bool = False
+        # Throttle scroll_end calls during streaming to prevent event queue flooding.
+        self._scroll_end_throttle_interval = 0.05  # 50ms
+        self._last_scroll_end_time = 0.0
+        # Batch tool finalizers to reduce call_after_refresh overhead.
+        self._pending_tool_finalizers: list = []
+        self._MAX_MESSAGES = 1000
 
     def on_mount(self) -> None:
         # A lightweight "New output" hint near bottom (Claude Code-like)
@@ -223,7 +233,12 @@ class MessageList(ScrollableContainer):
         self.mount(self._new_output_hint)
 
     def _at_bottom(self) -> bool:
-        return (self.max_scroll_y - self.scroll_y) <= 2
+        try:
+            msy = max(0, int(self.max_scroll_y))
+            sy = max(0, int(self.scroll_y))
+            return (msy - sy) <= 2
+        except Exception:
+            return True
 
     def _mark_unseen_output(self) -> None:
         if self._new_output_hint is None:
@@ -270,7 +285,7 @@ class MessageList(ScrollableContainer):
     def action_jump_bottom(self) -> None:
         """Jump to bottom and clear 'new output' hint."""
         self._follow_live_tail = True
-        self.scroll_to(0, self.max_scroll_y, animate=False)
+        self._do_scroll_end()
         if self._new_output_hint is not None:
             self._has_unseen_output = False
             self._new_output_hint.display = False
@@ -303,7 +318,21 @@ class MessageList(ScrollableContainer):
         self._follow_live_tail = True
         self.remove_children()
         self._new_output_hint = None
+        self._scroll_end_after_refresh_pending = False
         self._ensure_output_hint()
+
+    def _enforce_message_limit(self) -> None:
+        """Remove oldest messages when exceeding _MAX_MESSAGES to prevent memory bloat."""
+        if len(self._messages) <= self._MAX_MESSAGES:
+            return
+        # Remove oldest messages (keep last _MAX_MESSAGES)
+        to_remove = len(self._messages) - self._MAX_MESSAGES
+        for i in range(to_remove):
+            old_msg = self._messages.pop(0)
+            try:
+                old_msg.remove()
+            except Exception:
+                pass
 
     def add_user_message(
         self,
@@ -319,6 +348,7 @@ class MessageList(ScrollableContainer):
         msg = _UserMessageWidget(content, attachments)
         self._messages.append(msg)
         self.mount(msg)
+        self._enforce_message_limit()
         self.scroll_end()
 
     def start_assistant_message(self) -> None:
@@ -330,6 +360,7 @@ class MessageList(ScrollableContainer):
         self._messages.append(msg)
         self._current_assistant_message = msg
         self.mount(msg)
+        self._enforce_message_limit()
         self.scroll_end()
 
     def update_content(self, content: str) -> None:
@@ -344,7 +375,11 @@ class MessageList(ScrollableContainer):
         cleaned = _strip_leaked_thinking_markers(_normalize_display_text(content))
         if cleaned:
             self._current_assistant_message.append_content(cleaned)
-        self.scroll_end()
+        # Throttle scroll_end to prevent event queue flooding during streaming.
+        now = time.monotonic()
+        if now - self._last_scroll_end_time >= self._scroll_end_throttle_interval:
+            self._last_scroll_end_time = now
+            self.scroll_end()
 
     def update_thinking(self, thinking: str) -> None:
         """Update the thinking content.
@@ -376,6 +411,7 @@ class MessageList(ScrollableContainer):
                 self._tool_results[key] = msg
                 self._messages.append(msg)
                 self.mount(msg)
+                self._enforce_message_limit()
                 self.scroll_end()
 
     def add_tool_result(
@@ -404,6 +440,7 @@ class MessageList(ScrollableContainer):
             self._tool_results[key] = msg
             self._messages.append(msg)
             self.mount(msg)
+            self._enforce_message_limit()
             existing = msg
         self._last_tool_key = key
 
@@ -413,14 +450,18 @@ class MessageList(ScrollableContainer):
             existing.set_error(True)
         if done:
             existing.set_status(returncode=returncode, elapsed=elapsed, timeout=timeout)
-            # Defer finalize until after the next paint so fast tools still show a running
-            # state (subtitle / title dots) for at least one frame.
-            def _deferred_finalize() -> None:
-                existing.finalize()
-
-            self.call_after_refresh(_deferred_finalize)
+            # Batch finalizers and flush once after refresh to reduce callback overhead.
+            self._pending_tool_finalizers.append(existing)
+            if len(self._pending_tool_finalizers) == 1:
+                self.call_after_refresh(self._flush_tool_finalizers)
 
         self.scroll_end()
+
+    def _flush_tool_finalizers(self) -> None:
+        """Flush all pending tool finalizers in one batch."""
+        for widget in self._pending_tool_finalizers:
+            widget.finalize()
+        self._pending_tool_finalizers.clear()
 
     def add_error(self, error: str) -> None:
         """Add an error message.
@@ -431,6 +472,7 @@ class MessageList(ScrollableContainer):
         msg = _ErrorMessageWidget(error)
         self._messages.append(msg)
         self.mount(msg)
+        self._enforce_message_limit()
         self.scroll_end()
 
     def finalize_message(self, message: Any | None = None) -> None:
@@ -474,20 +516,32 @@ class MessageList(ScrollableContainer):
         caused redundant layout passes and visual flicker.
         """
         self.refresh(layout=True)
+        self._scroll_end_after_refresh_pending = False
         self.call_after_refresh(self._do_scroll_end)
+
+    def _schedule_scroll_end_after_refresh(self) -> None:
+        """At most one pending scroll callback per layout pass (see __init__ doc)."""
+        if self._scroll_end_after_refresh_pending:
+            return
+        self._scroll_end_after_refresh_pending = True
+        self.call_after_refresh(self._complete_pending_scroll_end)
+
+    def _complete_pending_scroll_end(self) -> None:
+        self._scroll_end_after_refresh_pending = False
+        self._do_scroll_end()
 
     def scroll_end(self) -> None:
         """Scroll to the end (bottom) of the message list."""
         # 跟新模式下始终尝试滚到底并隐藏浮层。流式输出时内容高度先变、scroll_y 尚未更新，
         # 旧的「非底部」判断会误触发 _mark_unseen_output，出现盖住正文的灰条按钮。
         if self._follow_live_tail:
-            self.call_after_refresh(self._do_scroll_end)
+            self._schedule_scroll_end_after_refresh()
             if self._new_output_hint is not None:
                 self._has_unseen_output = False
                 self._new_output_hint.display = False
             return
         if self._at_bottom():
-            self.call_after_refresh(self._do_scroll_end)
+            self._schedule_scroll_end_after_refresh()
             if self._new_output_hint is not None:
                 self._has_unseen_output = False
                 self._new_output_hint.display = False
@@ -496,7 +550,11 @@ class MessageList(ScrollableContainer):
 
     def _do_scroll_end(self) -> None:
         """Perform the actual scroll after layout refresh."""
-        self.scroll_to(0, self.max_scroll_y, animate=False)
+        try:
+            msy = max(0, int(self.max_scroll_y))
+            self.scroll_to(0, msy, animate=False)
+        except Exception:
+            pass
 
     def add_welcome_message(self, *, context: WelcomeContext | None = None) -> None:
         """Add the Claude Code–style welcome panel (Rich) for empty sessions."""

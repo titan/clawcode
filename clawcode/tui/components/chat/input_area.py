@@ -34,11 +34,42 @@ from ...builtin_slash import (
 
 # 与底部 HUD 参考布局一致：快捷键行在会话 HUD 上一行（见 OpenCodeInput / MessageInput）
 DEFAULT_INPUT_HELP_LINE = (
-    "press enter to send the message, write \\ and enter to add a new line"
+    "press ctrl+s to send the message, write \\ and enter to add a new line"
 )
 SLASH_INPUT_HELP_SUFFIX = (
     " | / commands: tab · ↑↓ | @ file: tab · ↑↓ | history: Tab · → · ↑↓ (list)"
 )
+
+
+def format_default_input_help(*, vim_normal_suffix: str = "") -> str:
+    """Three lines to avoid overflow: send hint; slash + file; history shortcuts."""
+    line1 = DEFAULT_INPUT_HELP_LINE
+    line2 = "/ commands: tab | @ file: tab"
+    line3 = f"history: Tab | Up/Down{vim_normal_suffix}"
+    return f"{line1}\n{line2}\n{line3}"
+
+
+def format_claude_input_help(*, vim_normal_suffix: str = "") -> str:
+    """Three lines for Claude mode: ctrl+s/esc; slash + file; history."""
+    line1 = "ctrl+s send | esc cancel"
+    line2 = "/ commands: tab | @ file: tab"
+    line3 = f"history: Tab | Up/Down{vim_normal_suffix}"
+    return f"{line1}\n{line2}\n{line3}"
+
+
+def _truncate_help_line(line: str, max_width: int) -> str:
+    """Truncate a help line to fit within max_width columns.
+    
+    Ensures text never overflows the container by cutting at max_width - 3
+    and appending '...' when needed.
+    """
+    if not line:
+        return ""
+    if len(line) <= max_width:
+        return line
+    if max_width <= 3:
+        return "." * max_width
+    return line[:max_width - 3] + "..."
 
 # App-level actions while focus is in the input subtree (TextArea may swallow keys before App BINDINGS).
 # Help: Textual maps Ctrl+H (ASCII 8) to ``backspace``, same as the Backspace key — we cannot bind
@@ -367,8 +398,10 @@ class MessageInput(Static):
     MessageInput .input_help {
         color: #92a0b4;
         text-align: left;
-        height: 1;
+        height: 3;
+        min-height: 3;
         padding: 0 1;
+        overflow: hidden;
     }
 
     MessageInput AttachmentList {
@@ -725,10 +758,18 @@ class MessageInput(Static):
         )
         yield Static("", id="ghost_hint", classes="ghost_hidden")
         yield Static(
-            DEFAULT_INPUT_HELP_LINE,
+            format_default_input_help(),
             classes="input_help",
             id="input_mode_hint",
         )
+
+    def on_mount(self) -> None:
+        self._update_mode_hint()
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Re-truncate help text when container width changes."""
+        _ = event
+        self._update_mode_hint()
 
     def on_mount(self) -> None:
         """Called when the widget is mounted."""
@@ -1309,12 +1350,16 @@ class MessageInput(Static):
             text_input.cursor_position = (last_line, last_col)
 
     def _update_mode_hint(self) -> None:
-        """Update the mode hint in the help line."""
+        """Update the mode hint in the help line, truncating to container width."""
         try:
             hint = self.query_one("#input_mode_hint", Static)
-            base = DEFAULT_INPUT_HELP_LINE + SLASH_INPUT_HELP_SUFFIX
             mode = " [NORMAL]" if self._vim_mode == "normal" else ""
-            hint.update(base + mode)
+            full_text = format_default_input_help(vim_normal_suffix=mode)
+            # Truncate each line to fit container width
+            container_width = max(40, int(self.size.width) - 2)  # -2 for padding
+            lines = full_text.split("\n")
+            truncated_lines = [_truncate_help_line(ln, container_width) for ln in lines]
+            hint.update("\n".join(truncated_lines))
         except Exception:
             pass
 
@@ -1587,6 +1632,8 @@ __all__ = [
     "AtSuggestStatic",
     "DEFAULT_INPUT_HELP_LINE",
     "SLASH_INPUT_HELP_SUFFIX",
+    "format_claude_input_help",
+    "format_default_input_help",
     "InputArea",
     "MessageInput",
     "PasteAwareTextArea",

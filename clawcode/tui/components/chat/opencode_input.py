@@ -11,13 +11,15 @@ from typing import Any
 from textual.containers import Horizontal
 from textual.widgets import Static
 
+from textual import events
+
 from .input_area import (
     AttachmentList,
     AtSuggestStatic,
-    DEFAULT_INPUT_HELP_LINE,
     MessageInput,
     PasteAwareTextArea,
     SlashSuggestStatic,
+    format_default_input_help,
 )
 
 
@@ -61,8 +63,10 @@ class OpenCodeInput(MessageInput):
     OpenCodeInput .input_help {
         color: #6a6a6a;
         text-align: left;
-        height: 1;
+        height: 3;
+        min-height: 3;
         padding: 0 1;
+        overflow: hidden;
     }
 
     OpenCodeInput #at_suggest {
@@ -107,10 +111,18 @@ class OpenCodeInput(MessageInput):
                 classes="input_textarea",
             )
         yield Static(
-            DEFAULT_INPUT_HELP_LINE,
+            format_default_input_help(),
             classes="input_help",
             id="input_mode_hint",
         )
+
+    def on_mount(self) -> None:
+        self._update_mode_hint()
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Re-truncate help text when container width changes."""
+        _ = event
+        self._update_mode_hint()
 
 
 __all__ = ["OpenCodeInput"]
