@@ -41,6 +41,9 @@ ClawCode is a Claude Code‑inspired implementation in Python and Rust, focused 
 
 <img width="2549" height="930" alt="ClawCode screenshot" src="https://github.com/user-attachments/assets/6cc0814a-aa3e-4f56-98dc-5123ecf88a1c" />
 
+## Portfolio
+[`MonsterLand`](https://github.com/deepelementlab/MonsterLand): Creative games and tooling apps built with clawcode.
+
 ## Philosophy
 
 We aim to build an open, excellent AI coding Swiss Army knife.
