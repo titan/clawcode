@@ -39,7 +39,7 @@
 
 ClawCode is a Claude Code‑inspired implementation in Python and Rust, focused on agents and experience‑based evolution. It is also an open‑source coding‑agent CLI for Anthropic, OpenAI, Gemini, DeepSeek, GLM, Kimi, Ollama, Codex, GitHub Models, and 200+ models via OpenAI‑compatible APIs.
 
-<img width="2549" height="930" alt="ClawCode screenshot" src="https://github.com/user-attachments/assets/6cc0814a-aa3e-4f56-98dc-5123ecf88a1c" />
+<img width="2549" height="930" alt="ClawCode screenshot" src="https://github.com/user-attachments/assets/14042063-5545-40c4-a1d8-141f8ea6c765" />
 
 ## Portfolio
 [`MonsterLand`](https://github.com/deepelementlab/MonsterLand): Creative games and tooling apps built with clawcode.
