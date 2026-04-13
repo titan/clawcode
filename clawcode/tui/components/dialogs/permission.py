@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from textual import on, events
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static
 
@@ -19,6 +19,16 @@ from ....core.permission import PermissionRequest
 
 # Re-export for ``from clawcode.tui.components.dialogs import PermissionRequest``
 __all__ = ["PermissionDialog", "PermissionRequest"]
+
+# Long bash/node one-liners can exceed terminal height; truncate for display only.
+_MAX_DESCRIPTION_CHARS = 12_000
+_MAX_INPUT_DISPLAY_CHARS = 2_000
+
+
+def _truncate_for_dialog(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
 
 
 class PermissionDialog(ModalScreen):
@@ -55,32 +65,33 @@ class PermissionDialog(ModalScreen):
 
     def compose(self):
         """Compose the permission dialog UI."""
+        desc = _truncate_for_dialog(
+            self.request.description or "", _MAX_DESCRIPTION_CHARS
+        )
         with Vertical(id="permission_dialog"):
-            # Header
-            yield Label("?? Permission Required", classes="permission_header")
+            yield Label("Permission Required", classes="permission_header")
 
-            # Description
-            yield Static(f"Tool: {self.request.tool_name}", classes="permission_description")
-            yield Static(self.request.description, classes="permission_description")
+            # Scrollable body so long commands (e.g. node -e multiline) do not push
+            # action buttons below #permission_dialog max-height clipping.
+            with ScrollableContainer(id="permission_body_scroll"):
+                yield Static(f"Tool: {self.request.tool_name}", classes="permission_description")
+                yield Static(desc, classes="permission_description")
 
-            # Path (if applicable)
-            if self.request.path:
-                yield Static(f"Path: {self.request.path}", classes="permission_path")
+                if self.request.path:
+                    yield Static(f"Path: {self.request.path}", classes="permission_path")
 
-            # Tool input (truncated)
-            if self.request.input:
-                if isinstance(self.request.input, dict):
-                    import json
+                if self.request.input:
+                    if isinstance(self.request.input, dict):
+                        import json
 
-                    input_str = json.dumps(self.request.input, indent=2)
-                else:
-                    input_str = str(self.request.input)
+                        input_str = json.dumps(self.request.input, indent=2)
+                    else:
+                        input_str = str(self.request.input)
+                    input_str = _truncate_for_dialog(
+                        input_str, _MAX_INPUT_DISPLAY_CHARS
+                    )
+                    yield Static(f"Input: {input_str}", classes="permission_description")
 
-                if len(input_str) > 200:
-                    input_str = input_str[:200] + "..."
-                yield Static(f"Input: {input_str}", classes="permission_description")
-
-            # Buttons: Allow once / Always allow / Deny
             with Horizontal(id="permission_buttons"):
                 yield Button("Allow once (a)", id="allow_once_button", variant="primary")
                 yield Button("Always allow (y)", id="allow_session_button")

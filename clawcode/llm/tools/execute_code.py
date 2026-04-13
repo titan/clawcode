@@ -481,7 +481,11 @@ RPC_PORT = int(os.environ.get("EXEC_CODE_RPC_PORT", "0") or "0")
 RPC_TOKEN = os.environ.get("EXEC_CODE_RPC_TOKEN", "")
 
 def _blocked_open(*_args, **_kwargs):
-    raise PermissionError("open() is blocked in execute_code sandbox")
+    raise PermissionError(
+        "open() is blocked in execute_code sandbox. "
+        "To create/edit files, use write_file(path, content) helper (injected into sandbox), "
+        "or switch to kind='shell' and use the 'write' tool."
+    )
 
 def _blocked_import(*_args, **_kwargs):
     raise ImportError("__import__ is blocked in execute_code sandbox")

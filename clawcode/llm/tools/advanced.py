@@ -392,25 +392,26 @@ class WriteTool(BaseTool):
         try:
             _DIFF_SIZE_LIMIT = 100_000
 
-            def _write_sync() -> tuple[int, int]:
+            def _write_sync() -> tuple[int, int, str, bool]:
                 if create_dirs and path.parent != Path("."):
                     path.parent.mkdir(parents=True, exist_ok=True)
 
-                existed = path.exists()
                 before = ""
-                if existed:
-                    try:
-                        sz = path.stat().st_size
-                        if sz < _DIFF_SIZE_LIMIT:
-                            with open(path, "r", encoding="utf-8") as f:
-                                before = f.read()
-                    except Exception:
-                        before = ""
+                sz = 0
+                try:
+                    st = path.stat()
+                    sz = st.st_size
+                    if sz < _DIFF_SIZE_LIMIT:
+                        with open(path, "r", encoding="utf-8") as f:
+                            before = f.read()
+                    existed = True
+                except FileNotFoundError:
+                    existed = False
 
                 with open(path, "w", encoding="utf-8", newline="\n") as f:
                     f.write(content)
 
-                size = path.stat().st_size
+                size = len(content.encode("utf-8"))
                 lines = content.count("\n") + 1
                 return lines, size, before, existed
 
@@ -550,9 +551,16 @@ class EditTool(BaseTool):
                 )
 
         try:
+            _EDIT_SIZE_LIMIT = 5_000_000
+
             def _edit_sync() -> tuple[int, str, str]:
                 with open(path, "r", encoding="utf-8") as f:
                     before_content = f.read()
+                if len(before_content) > _EDIT_SIZE_LIMIT:
+                    raise ValueError(
+                        f"File too large for edit ({len(before_content)} bytes, "
+                        f"limit {_EDIT_SIZE_LIMIT}). Use patch tool instead."
+                    )
                 file_content = before_content
 
                 total_replacements = 0
@@ -574,10 +582,10 @@ class EditTool(BaseTool):
                             file_content, n = re.subn(old_text, new_text, file_content)
                     else:
                         if count > 0:
-                            before = file_content
+                            n_before = file_content.count(old_text)
                             file_content = file_content.replace(old_text, new_text, count)
-                            # best-effort count without scanning twice
-                            n = 0 if before == file_content else 1
+                            n_after = file_content.count(old_text)
+                            n = n_before - n_after
                         else:
                             n = file_content.count(old_text)
                             file_content = file_content.replace(old_text, new_text)

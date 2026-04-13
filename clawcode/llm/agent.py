@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import hashlib
+import time
 from collections import defaultdict
 import uuid
 from dataclasses import dataclass, field
@@ -25,7 +26,7 @@ from .tools import BaseTool, ToolContext, ToolResponse
 from .prompts import get_system_prompt
 from ..config import get_settings
 from ..claw_learning.ops_observability import emit_ops_event
-from ..learning.store import record_tool_observation
+from ..learning.store import record_tool_observation_async
 from ..plugin.types import HookEvent
 from ..utils.text import sanitize_text
 from ..config.settings import Settings
@@ -397,6 +398,11 @@ class Agent:
         self._ephemeral_user_suffix = ""
         self._ephemeral_user_target_id: str | None = None
         self._reset_closed_loop_metrics()
+        self._cached_tool_schemas: list[dict[str, Any]] | None = None
+        self._provider_messages_cache: list[dict[str, Any]] = []
+        self._provider_messages_cache_len: int = 0
+        self._last_flush_time: float = 0.0
+        self._flush_cooldown: float = 60.0
 
     def _reset_closed_loop_metrics(self) -> None:
         """Per-run observability counters for closed-loop behavior."""
@@ -417,6 +423,11 @@ class Agent:
             Provider instance
         """
         return self._provider
+
+    def _get_tool_schemas(self) -> list[dict[str, Any]]:
+        if self._cached_tool_schemas is None:
+            self._cached_tool_schemas = [t.info().to_dict() for t in self._tools_unique]
+        return self._cached_tool_schemas
 
     def _maybe_save_artifact(
         self, session_id: str, tool_call_id: str, content: str
@@ -457,7 +468,16 @@ class Agent:
             return history
         model = getattr(self._provider, "model", None)
         try:
-            await self._flush_memories_before_compact(session_id, history)
+            now = time.monotonic()
+            if now - self._last_flush_time >= self._flush_cooldown:
+                self._last_flush_time = now
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(
+                        self._flush_memories_before_compact(session_id, history)
+                    )
+                except RuntimeError:
+                    pass
             compact_result = await self._summarizer.maybe_summarize(
                 session_id,
                 history,
@@ -678,15 +698,15 @@ class Agent:
                         role=MessageRole.ASSISTANT,
                     )
 
-                    tool_schemas = [
-                        t.info().to_dict() for t in self._tools_unique
-                    ]
+                    tool_schemas = self._get_tool_schemas()
                     provider_messages = self._convert_history_to_provider(
                         history,
                         tools_present=bool(tool_schemas),
                     )
                     tool_calls: list[ToolCall] = []
                     stream_failed: str | None = None
+                    _last_yield_time = time.monotonic()
+                    _YIELD_INTERVAL = 0.05
 
                     async for event in self._provider.stream_response(
                         provider_messages, tool_schemas
@@ -702,7 +722,10 @@ class Agent:
                                 delta = event.content or ""
                                 assistant_msg.parts.append(TextContent(content=delta))
                                 yield AgentEvent.content_delta(delta)
-                                await asyncio.sleep(0)
+                                now = time.monotonic()
+                                if now - _last_yield_time >= _YIELD_INTERVAL:
+                                    await asyncio.sleep(0)
+                                    _last_yield_time = now
 
                             case ProviderEventType.THINKING_DELTA:
                                 thinking = event.thinking or ""
@@ -713,7 +736,10 @@ class Agent:
                                     type=AgentEventType.THINKING,
                                     content=thinking,
                                 )
-                                await asyncio.sleep(0)
+                                now = time.monotonic()
+                                if now - _last_yield_time >= _YIELD_INTERVAL:
+                                    await asyncio.sleep(0)
+                                    _last_yield_time = now
 
                             case ProviderEventType.TOOL_USE_START:
                                 pass
@@ -726,6 +752,7 @@ class Agent:
                                         usage=response.usage,
                                     )
                                     await asyncio.sleep(0)
+                                    _last_yield_time = time.monotonic()
                                 if response and response.tool_calls:
                                     for tc in response.tool_calls:
                                         tool_calls.append(tc)
@@ -739,7 +766,6 @@ class Agent:
                                         yield AgentEvent.tool_use_with_id(
                                             tc.name, tc.id, tc.input or {}
                                         )
-                                        await asyncio.sleep(0)
                                 if response:
                                     assistant_msg.finished_at = int(
                                         asyncio.get_event_loop().time()
@@ -1057,7 +1083,7 @@ class Agent:
                 provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
                 model_name = str(getattr(self._provider, "model", "") or "")
                 reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                record_tool_observation(
+                record_tool_observation_async(
                     self._settings,
                     phase="tool_start",
                     session_id=session_id,
@@ -1138,7 +1164,7 @@ class Agent:
                     provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
                     model_name = str(getattr(self._provider, "model", "") or "")
                     reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                    record_tool_observation(
+                    record_tool_observation_async(
                         self._settings,
                         phase="tool_complete",
                         session_id=session_id,
@@ -1240,7 +1266,7 @@ class Agent:
                     provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
                     model_name = str(getattr(self._provider, "model", "") or "")
                     reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                    record_tool_observation(
+                    record_tool_observation_async(
                         self._settings,
                         phase="tool_complete",
                         session_id=session_id,
@@ -1305,7 +1331,7 @@ class Agent:
                     provider_name = getattr(self._provider, "name", "") or self._provider.__class__.__name__
                     model_name = str(getattr(self._provider, "model", "") or "")
                     reasoning_effort = str(getattr(self._provider, "reasoning_effort", "") or "")
-                    record_tool_observation(
+                    record_tool_observation_async(
                         self._settings,
                         phase="tool_complete",
                         session_id=session_id,
@@ -1385,13 +1411,31 @@ class Agent:
     ) -> list[dict[str, Any]]:
         """Convert message history to provider format with multimodal support.
 
+        Uses incremental conversion: only processes new messages since the last call,
+        appending them to an internal cache for O(1) amortized per-iteration cost.
+
         Args:
             history: Message history
 
         Returns:
             Provider format messages
         """
-        messages = []
+        new_count = len(history) - getattr(self, '_provider_messages_cache_len', 0)
+        if not hasattr(self, '_provider_messages_cache'):
+            self._provider_messages_cache = []
+            self._provider_messages_cache_len = 0
+        if new_count < 0:
+            self._provider_messages_cache.clear()
+            self._provider_messages_cache_len = 0
+            new_count = len(history)
+        if new_count == 0 and self._provider_messages_cache:
+            result = list(self._provider_messages_cache)
+            _normalize_tool_message_sequences_for_api(result)
+            return result
+
+        if not self._provider_messages_cache:
+            system_msg = {"role": "system", "content": self._system_prompt}
+            self._provider_messages_cache.append(system_msg)
 
         inject_reasoning = False
         try:
@@ -1401,174 +1445,167 @@ class Agent:
         except Exception:
             inject_reasoning = False
 
-        # Add system prompt
-        messages.append({
-            "role": "system",
-            "content": self._system_prompt,
-        })
+        new_msgs = history[self._provider_messages_cache_len:]
+        for msg in new_msgs:
+            converted = self._convert_single_message(msg, inject_reasoning)
+            if converted is not None:
+                self._provider_messages_cache.extend(converted)
+        self._provider_messages_cache_len = len(history)
 
-        # Add conversation history
-        for msg in history:
-            # OpenAI / DeepSeek: tool results must be separate messages with tool_call_id
-            if msg.role == MessageRole.TOOL:
-                raw = (msg.content or "").strip()
-                try:
-                    batch = json.loads(raw) if raw else []
-                except json.JSONDecodeError:
-                    batch = []
+        result = list(self._provider_messages_cache)
+        _normalize_tool_message_sequences_for_api(result)
+        return result
 
-                if isinstance(batch, list) and batch:
-                    tool_rows: list[dict[str, Any]] = []
-                    oai_tool_calls: list[dict[str, Any]] = []
-                    for idx, item in enumerate(batch):
-                        if not isinstance(item, dict):
-                            continue
-                        tid = (
-                            item.get("tool_call_id")
-                            or item.get("tool_use_id")
-                            or ""
-                        )
-                        if not tid:
-                            tid = f"clawcode_missing_tool_call_id_{idx}"
-                        name = item.get("name") or item.get("tool_name") or "unknown"
-                        args_raw = item.get("arguments")
-                        if isinstance(args_raw, str):
-                            arg_str = args_raw
-                        elif isinstance(args_raw, dict):
-                            arg_str = json.dumps(args_raw, ensure_ascii=False)
-                        else:
-                            arg_str = "{}"
-                        oai_tool_calls.append({
-                            "id": tid,
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": arg_str,
-                            },
-                        })
-                        body = item.get("content", "")
-                        if not isinstance(body, str):
-                            body = json.dumps(body, ensure_ascii=False)
-                        if item.get("is_error"):
-                            body = f"Error: {body}" if body else "Error"
-                        tool_rows.append({
-                            "role": "tool",
-                            "tool_call_id": tid,
-                            "content": body,
-                        })
-
-                    # DeepSeek / OpenAI: every tool message must follow an assistant with tool_calls
-                    i = len(messages) - 1
-                    while i >= 0 and messages[i].get("role") == "tool":
-                        i -= 1
-                    can_emit_tools = False
-                    if i >= 0 and messages[i].get("role") == "assistant":
-                        if not messages[i].get("tool_calls") and oai_tool_calls:
-                            messages[i]["tool_calls"] = oai_tool_calls
-                            if messages[i].get("content") is None:
-                                messages[i]["content"] = ""
-                            can_emit_tools = True
-                        elif messages[i].get("tool_calls"):
-                            can_emit_tools = True
-                    if can_emit_tools and tool_rows:
-                        messages.extend(tool_rows)
-                    elif tool_rows and not can_emit_tools:
-                        _logger.warning(
-                            "Dropped orphan tool results (no preceding assistant with tool_calls)"
-                        )
-                elif raw:
-                    _logger.warning(
-                        "Skipping non-JSON tool message (would break strict OpenAI/DeepSeek APIs)"
-                    )
-                continue
-
-            # Assistant turn that invoked tools (must include tool_calls for strict APIs)
-            if msg.role == MessageRole.ASSISTANT and msg.tool_calls():
-                text_blocks: list[str] = []
-                for p in msg.parts:
-                    if isinstance(p, TextContent):
-                        text_blocks.append(sanitize_text(p.content or ""))
-                combined = "\n".join(x for x in text_blocks if x).strip()
+    def _convert_single_message(
+        self, msg: Message, inject_reasoning: bool
+    ) -> list[dict[str, Any]] | None:
+        if msg.role == MessageRole.TOOL:
+            raw = (msg.content or "").strip()
+            try:
+                batch = json.loads(raw) if raw else []
+            except json.JSONDecodeError:
+                batch = []
+            if isinstance(batch, list) and batch:
+                tool_rows: list[dict[str, Any]] = []
                 oai_tool_calls: list[dict[str, Any]] = []
-                for tc in msg.tool_calls():
-                    arg = tc.input
-                    if isinstance(arg, dict):
-                        arg_str = json.dumps(arg, ensure_ascii=False)
+                for idx, item in enumerate(batch):
+                    if not isinstance(item, dict):
+                        continue
+                    tid = (
+                        item.get("tool_call_id")
+                        or item.get("tool_use_id")
+                        or ""
+                    )
+                    if not tid:
+                        tid = f"clawcode_missing_tool_call_id_{idx}"
+                    name = item.get("name") or item.get("tool_name") or "unknown"
+                    args_raw = item.get("arguments")
+                    if isinstance(args_raw, str):
+                        arg_str = args_raw
+                    elif isinstance(args_raw, dict):
+                        arg_str = json.dumps(args_raw, ensure_ascii=False)
                     else:
-                        arg_str = str(arg) if arg else "{}"
+                        arg_str = "{}"
                     oai_tool_calls.append({
-                        "id": tc.id,
+                        "id": tid,
                         "type": "function",
                         "function": {
-                            "name": tc.name,
+                            "name": name,
                             "arguments": arg_str,
                         },
                     })
-                row = {
-                    "role": "assistant",
-                    "content": combined or "",
-                    "tool_calls": oai_tool_calls,
-                }
-                if inject_reasoning and msg.thinking:
-                    row["reasoning_content"] = msg.thinking
-                messages.append(row)
-                continue
+                    body = item.get("content", "")
+                    if not isinstance(body, str):
+                        body = json.dumps(body, ensure_ascii=False)
+                    if item.get("is_error"):
+                        body = f"Error: {body}" if body else "Error"
+                    tool_rows.append({
+                        "role": "tool",
+                        "tool_call_id": tid,
+                        "content": body,
+                    })
+                # Attach tool_calls to preceding assistant if needed.
+                i = len(self._provider_messages_cache) - 1
+                while i >= 0 and self._provider_messages_cache[i].get("role") == "tool":
+                    i -= 1
+                can_emit_tools = False
+                if i >= 0 and self._provider_messages_cache[i].get("role") == "assistant":
+                    if not self._provider_messages_cache[i].get("tool_calls") and oai_tool_calls:
+                        self._provider_messages_cache[i]["tool_calls"] = oai_tool_calls
+                        if self._provider_messages_cache[i].get("content") is None:
+                            self._provider_messages_cache[i]["content"] = ""
+                        can_emit_tools = True
+                    elif self._provider_messages_cache[i].get("tool_calls"):
+                        can_emit_tools = True
+                if can_emit_tools and tool_rows:
+                    return tool_rows
+                elif tool_rows and not can_emit_tools:
+                    _logger.warning(
+                        "Dropped orphan tool results (no preceding assistant with tool_calls)"
+                    )
+            elif raw:
+                _logger.warning(
+                    "Skipping non-JSON tool message (would break strict OpenAI/DeepSeek APIs)"
+                )
+            return []
 
-            # Check if message has multimodal content
-            has_images = any(isinstance(p, ImageContent) for p in msg.parts)
-            has_files = any(isinstance(p, FileContent) for p in msg.parts)
+        if msg.role == MessageRole.ASSISTANT and msg.tool_calls():
+            text_blocks: list[str] = []
+            for p in msg.parts:
+                if isinstance(p, TextContent):
+                    text_blocks.append(sanitize_text(p.content or ""))
+            combined = "\n".join(x for x in text_blocks if x).strip()
+            oai_tool_calls: list[dict[str, Any]] = []
+            for tc in msg.tool_calls():
+                arg = tc.input
+                if isinstance(arg, dict):
+                    arg_str = json.dumps(arg, ensure_ascii=False)
+                else:
+                    arg_str = str(arg) if arg else "{}"
+                oai_tool_calls.append({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": arg_str,
+                    },
+                })
+            row = {
+                "role": "assistant",
+                "content": combined or "",
+                "tool_calls": oai_tool_calls,
+            }
+            if inject_reasoning and msg.thinking:
+                row["reasoning_content"] = msg.thinking
+            return [row]
 
-            if has_images or has_files:
-                # Convert to structured content format
-                content_parts = []
-                for part in msg.parts:
-                    if isinstance(part, TextContent):
-                        content_parts.append({
-                            "type": "text",
-                            "content": sanitize_text(part.content or ""),
-                        })
-                    elif isinstance(part, ImageContent):
-                        content_parts.append(part.to_dict())
-                    elif isinstance(part, FileContent):
-                        content_parts.append(part.to_dict())
-                    elif isinstance(part, ThinkingContent):
-                        content_parts.append({
-                            "type": "text",
-                            "content": f"[Thinking] {part.content}",
-                        })
-                    else:
-                        # Handle other content types as text
-                        content_parts.append({
-                            "type": "text",
-                            "content": str(part.to_dict()),
-                        })
+        has_images = any(isinstance(p, ImageContent) for p in msg.parts)
+        has_files = any(isinstance(p, FileContent) for p in msg.parts)
 
-                provider_msg = {
-                    "role": msg.role.value,
-                    "content": content_parts,
-                }
-                if msg.role == MessageRole.ASSISTANT and inject_reasoning and msg.thinking:
-                    provider_msg["reasoning_content"] = msg.thinking
-            else:
-                # Simple text content
-                provider_msg = {
-                    "role": msg.role.value,
-                    "content": sanitize_text(msg.content or ""),
-                }
-                if (
-                    msg.role == MessageRole.USER
-                    and self._ephemeral_user_suffix
-                    and self._ephemeral_user_target_id
-                    and msg.id == self._ephemeral_user_target_id
-                ):
-                    provider_msg["content"] = (provider_msg["content"] + self._ephemeral_user_suffix).strip()
-                if msg.role == MessageRole.ASSISTANT and inject_reasoning and msg.thinking:
-                    provider_msg["reasoning_content"] = msg.thinking
+        if has_images or has_files:
+            content_parts = []
+            for part in msg.parts:
+                if isinstance(part, TextContent):
+                    content_parts.append({
+                        "type": "text",
+                        "content": sanitize_text(part.content or ""),
+                    })
+                elif isinstance(part, ImageContent):
+                    content_parts.append(part.to_dict())
+                elif isinstance(part, FileContent):
+                    content_parts.append(part.to_dict())
+                elif isinstance(part, ThinkingContent):
+                    content_parts.append({
+                        "type": "text",
+                        "content": f"[Thinking] {part.content}",
+                    })
+                else:
+                    content_parts.append({
+                        "type": "text",
+                        "content": str(part.to_dict()),
+                    })
+            provider_msg: dict[str, Any] = {
+                "role": msg.role.value,
+                "content": content_parts,
+            }
+            if msg.role == MessageRole.ASSISTANT and inject_reasoning and msg.thinking:
+                provider_msg["reasoning_content"] = msg.thinking
+        else:
+            provider_msg = {
+                "role": msg.role.value,
+                "content": sanitize_text(msg.content or ""),
+            }
+            if (
+                msg.role == MessageRole.USER
+                and self._ephemeral_user_suffix
+                and self._ephemeral_user_target_id
+                and msg.id == self._ephemeral_user_target_id
+            ):
+                provider_msg["content"] = (provider_msg["content"] + self._ephemeral_user_suffix).strip()
+            if msg.role == MessageRole.ASSISTANT and inject_reasoning and msg.thinking:
+                provider_msg["reasoning_content"] = msg.thinking
 
-            messages.append(provider_msg)
-
-        _normalize_tool_message_sequences_for_api(messages)
-        return messages
+        return [provider_msg]
 
 
 __all__ = [

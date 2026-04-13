@@ -142,27 +142,52 @@ class HookEngine:
         if not groups:
             return decisions
 
-        # Execute in registration order for determinism.
-        for plugin, group in groups:
+        # Execute hooks. Group by plugin; within each plugin, hooks are sequential
+        # for determinism. Independent plugins run in parallel.
+        per_plugin: dict[int, list[tuple[LoadedPlugin, HookMatcherGroup, HookHandler]]] = {}
+        for idx, (plugin, group) in enumerate(groups):
             for handler in group.hooks:
                 if handler.type == HookHandlerType.AGENT and suppress_agent_hooks:
                     continue
+                pid = id(plugin)
+                if pid not in per_plugin:
+                    per_plugin[pid] = []
+                per_plugin[pid].append((plugin, group, handler))
 
+        if not per_plugin:
+            return decisions
+
+        async def _run_plugin_handlers(
+            entries: list[tuple[LoadedPlugin, HookMatcherGroup, HookHandler]],
+        ) -> list[HookDecision]:
+            plugin_decisions: list[HookDecision] = []
+            for plugin, group, handler in entries:
                 try:
-                    dec = await self._execute_handler(
-                        handler,
-                        event=event,
-                        context=context,
-                        provider=provider,
-                        working_directory=working_directory,
-                        plugin_var_map=plugin_var_map,
-                        agent_tools=agent_tools,
+                    dec = await asyncio.wait_for(
+                        self._execute_handler(
+                            handler,
+                            event=event,
+                            context=context,
+                            provider=provider,
+                            working_directory=working_directory,
+                            plugin_var_map=plugin_var_map,
+                            agent_tools=agent_tools,
+                        ),
+                        timeout=15.0,
                     )
                     if dec:
-                        decisions.append(dec)
+                        plugin_decisions.append(dec)
+                except asyncio.TimeoutError:
+                    logger.warning("Hook timed out (15s): %s", handler)
                 except Exception as e:
                     logger.warning("Hook execution failed: %s (%s)", e, handler)
-                    continue
+            return plugin_decisions
+
+        results = await asyncio.gather(
+            *(_run_plugin_handlers(entries) for entries in per_plugin.values())
+        )
+        for plugin_decisions in results:
+            decisions.extend(plugin_decisions)
 
         return decisions
 

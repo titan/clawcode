@@ -58,8 +58,63 @@ def record_tool_observation(
         "source_model": source_model,
         "reasoning_effort": reasoning_effort,
     }
-    with p.observations_file.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    try:
+        with p.observations_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def record_tool_observation_async(
+    settings: Settings | None,
+    *,
+    phase: str,
+    session_id: str,
+    tool_name: str,
+    tool_call_id: str = "",
+    tool_input: object | None = None,
+    tool_output: object | None = None,
+    is_error: bool = False,
+    source_provider: str = "",
+    source_model: str = "",
+    reasoning_effort: str = "",
+) -> None:
+    """Fire-and-forget wrapper: schedules observation in a background thread."""
+    import asyncio
+
+    if settings is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(
+            None,
+            record_tool_observation,
+            settings,
+            phase,
+            session_id,
+            tool_name,
+            tool_call_id,
+            tool_input,
+            tool_output,
+            is_error,
+            source_provider,
+            source_model,
+            reasoning_effort,
+        )
+    except RuntimeError:
+        record_tool_observation(
+            settings,
+            phase=phase,
+            session_id=session_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            tool_input=tool_input,
+            tool_output=tool_output,
+            is_error=is_error,
+            source_provider=source_provider,
+            source_model=source_model,
+            reasoning_effort=reasoning_effort,
+        )
 
 
 def read_recent_observations(settings: Settings, limit: int = 300) -> list[dict[str, Any]]:

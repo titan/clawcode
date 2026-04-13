@@ -224,10 +224,16 @@ Button.-success {
 #permission_dialog {
     width: 80%;
     height: auto;
-    max-height: 20;
+    max-height: 32;
     background: #313244;
     border: thick #45475a;
     padding: 1;
+}
+
+#permission_body_scroll {
+    height: 1fr;
+    min-height: 4;
+    max-height: 22;
 }
 
 .permission_header {

@@ -46,6 +46,25 @@ class CoderRuntimeBundle:
     claw_agent_kwargs: dict[str, Any]
     message_service: MessageService
     session_service: SessionService
+    _lazy_summarizer: Any = None
+    _lazy_summarizer_initialized: bool = False
+
+    def _ensure_summarizer(self) -> Any:
+        if self._lazy_summarizer_initialized:
+            return self._lazy_summarizer
+        self._lazy_summarizer_initialized = True
+        try:
+            from ..history.summarizer import SummarizerService
+
+            self._lazy_summarizer = SummarizerService(
+                settings=self.settings,
+                message_service=self.message_service,
+                session_service=self.session_service,
+                provider=self.provider,
+            )
+        except Exception:
+            self._lazy_summarizer = None
+        return self._lazy_summarizer
 
     def make_claw_agent(self, *, permission_client: Any | None = None) -> Any:
         """Build a :class:`~clawcode.llm.claw.ClawAgent` (TUI coder path)."""
@@ -58,7 +77,7 @@ class CoderRuntimeBundle:
             session_service=self.session_service,
             system_prompt=self.system_prompt,
             hook_engine=self.hook_engine,
-            summarizer=self.summarizer,
+            summarizer=self._ensure_summarizer(),
             settings=self.settings,
             permission_client=permission_client,
             **self.claw_agent_kwargs,
@@ -76,7 +95,7 @@ class CoderRuntimeBundle:
             "hook_engine": self.hook_engine,
             "settings": self.settings,
             "permission_client": permission_client,
-            "summarizer": self.summarizer,
+            "summarizer": self._ensure_summarizer(),
         }
         if self.system_prompt is not None:
             kw["system_prompt"] = self.system_prompt
@@ -171,26 +190,13 @@ def build_coder_runtime(
 
     claw_agent_kwargs = claw_agent_kwargs_from_settings(settings)
 
-    summarizer = None
-    try:
-        from ..history.summarizer import SummarizerService
-
-        summarizer = SummarizerService(
-            settings=settings,
-            message_service=message_service,
-            session_service=session_service,
-            provider=provider,
-        )
-    except Exception:
-        pass
-
     return CoderRuntimeBundle(
         settings=settings,
         provider=provider,
         tools=tools,
         system_prompt=system_prompt,
         hook_engine=hook_engine,
-        summarizer=summarizer,
+        summarizer=None,
         claw_agent_kwargs=claw_agent_kwargs,
         message_service=message_service,
         session_service=session_service,

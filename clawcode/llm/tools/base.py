@@ -62,23 +62,31 @@ class ToolCall:
     id: str
     name: str
     input: str | dict[str, Any]
+    _cached_input_dict: dict[str, Any] | None = field(default=None, init=False, repr=False)
 
     def get_input_dict(self) -> dict[str, Any]:
-        """Get input as dictionary.
+        """Get input as dictionary (result is cached after first call).
 
         Returns:
             Input parameters as dictionary
         """
+        if self._cached_input_dict is not None:
+            return self._cached_input_dict
         if isinstance(self.input, dict):
-            return normalize_tool_input_dict(self.input, tool_name=self.name)
-
-        try:
-            parsed: Any = json.loads(self.input)
-        except json.JSONDecodeError:
-            return {"raw": self.input}
-        if isinstance(parsed, dict):
-            return normalize_tool_input_dict(parsed, tool_name=self.name)
-        return parsed
+            result = normalize_tool_input_dict(self.input, tool_name=self.name)
+        else:
+            try:
+                parsed: Any = json.loads(self.input)
+            except json.JSONDecodeError:
+                result = {"raw": self.input}
+                self._cached_input_dict = result
+                return result
+            if isinstance(parsed, dict):
+                result = normalize_tool_input_dict(parsed, tool_name=self.name)
+            else:
+                result = parsed
+        self._cached_input_dict = result
+        return result
 
 
 @dataclass

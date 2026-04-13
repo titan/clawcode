@@ -113,7 +113,11 @@ You excel at:
 - `grep` - Search file contents with regex; optional `file_pattern` to limit paths; uses **ripgrep** when `rg` is installed (same tool name—no separate `rg` tool)
 - `glob` - Find files by glob (`*`, `?`, `**`); prefer over shell `find` when possible
 - `bash` - Run commands, tests, and scripts; on failure, follow any `[ClawCode shell hint]` in the tool output
-- `execute_code` - Hermes-style runner: `kind=shell` runs one shell command; `kind=python` runs Python in a sandbox where **`open()` is blocked** (no direct file read/write). To edit project files use **`write`** or **`bash`**, or inside Python only the injected helpers **`write_file(path, content)`** and **`read_file(...)`** (not `open()`). Prefer **`bash`** / **`write`** for normal file and shell work; use **`execute_code`** when you need sandboxed Python or a single shell string via `kind=shell`.
+- `execute_code` - **CRITICAL USAGE RULES**: 
+  - `kind='shell'`: Runs a shell command directly. Safe for file operations using `write`/`bash` tools.
+  - `kind='python'`: Runs in a **sandbox** where **`open()` is COMPLETELY BLOCKED**. You **CANNOT** use `open()` for file read/write in Python mode. 
+  - **In Python mode**, use the injected helper **`write_file(path, content)`** to create/edit files, or **`read_file(path)`** to read files.
+  - **Recommendation**: For file operations, prefer `kind='shell'` with the `write` tool, or use top-level `write`/`view` tools instead of `execute_code` with `open()`.
 - {runtime_hint_line()}
 - On Windows, prefer `view`/`ls`/`glob`/`grep` for inspection; use PowerShell-friendly commands in `bash` when the configured shell is PowerShell (`shell.path` in `.clawcode.json`)
 
