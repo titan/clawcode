@@ -230,6 +230,20 @@ SAFE_COMMANDS = {
     "which",
     "type",
     "cd",
+    "mkdir",
+    "touch",
+    "cp",
+    "mv",
+    "test",
+    "wc",
+    "sort",
+    "uniq",
+    "date",
+    "uname",
+    "whoami",
+    "id",
+    "env",
+    "printenv",
     "git status",
     "git log",
     "git diff",
@@ -369,7 +383,11 @@ class BashTool(BaseTool):
 
         requires_permission = not self._is_safe_command(original)
 
-        if requires_permission and self._permissions:
+        # Prefer context-level permission service (allows subagents to override),
+        # fall back to the tool-instance permissions.
+        perm_svc = getattr(context, "permission_service", None) or self._permissions
+
+        if requires_permission and perm_svc:
             from ...core.permission import PermissionRequest
 
             request = PermissionRequest(
@@ -380,7 +398,7 @@ class BashTool(BaseTool):
                 session_id=context.session_id,
             )
 
-            response = await self._permissions.request(request)
+            response = await perm_svc.request(request)
             if not response.granted:
                 return ToolResponse(
                     content="Permission denied for command execution",
@@ -508,7 +526,12 @@ class BashTool(BaseTool):
             return
 
         requires_permission = not self._is_safe_command(original)
-        if requires_permission and self._permissions:
+
+        # Prefer context-level permission service (allows subagents to override),
+        # fall back to the tool-instance permissions.
+        perm_svc = getattr(context, "permission_service", None) or self._permissions
+
+        if requires_permission and perm_svc:
             from ...core.permission import PermissionRequest
 
             request = PermissionRequest(
@@ -518,7 +541,7 @@ class BashTool(BaseTool):
                 input=params,
                 session_id=context.session_id,
             )
-            response = await self._permissions.request(request)
+            response = await perm_svc.request(request)
             if not response.granted:
                 yield ToolResponse(
                     content="Permission denied for command execution",

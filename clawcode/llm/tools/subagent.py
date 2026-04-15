@@ -29,6 +29,21 @@ if TYPE_CHECKING:
 else:
     HookEngine = Any  # type: ignore[misc, assignment]
 
+
+class _SubAgentAutoApprovePermissions:
+    """Permission client that auto-approves all requests from subagents.
+
+    Subagent tool sets are already gated by ``allowed_tools``; additional
+    per-command permission dialogs inside the nested agent loop stall the
+    subagent (the dialog competes with the parent agent's running task and
+    often auto-denies after timeout).  By auto-approving we trust the
+    ``allowed_tools`` allowlist as the sole permission boundary.
+    """
+
+    async def request(self, req: Any, timeout: float = 300.0) -> Any:
+        from ...core.permission import PermissionResponse
+        return PermissionResponse(granted=True)
+
 logger = logging.getLogger(__name__)
 
 
@@ -570,6 +585,11 @@ class SubAgent:
                 _settings_obj = get_settings()
             except Exception:
                 _settings_obj = None
+            # Use auto-approve permissions for the subagent's internal Agent.
+            # The subagent's tool set is already gated by allowed_tools; per-command
+            # permission dialogs would stall the nested agent loop.
+            _sub_permissions = _SubAgentAutoApprovePermissions()
+
             agent = Agent(
                 provider=provider,
                 tools=tools,
@@ -580,7 +600,7 @@ class SubAgent:
                 working_directory=effective_cwd,
                 hook_engine=self._hook_engine,
                 settings=_settings_obj,
-                permission_client=self._permission_client,
+                permission_client=_sub_permissions,
             )
             loop_error: str | None = None
             hud_id_prefix = f"sub:{self._context.session_id}:"
