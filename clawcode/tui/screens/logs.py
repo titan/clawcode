@@ -31,6 +31,10 @@ class LogsScreen(Screen):
         super().__init__(**kwargs)
         self._log_lines: list[str] = []
 
+    def render(self) -> str:
+        """Screen-level render — return empty so child widgets handle display."""
+        return ""
+
     def compose(self):
         """Compose the logs screen UI."""
         yield Header()

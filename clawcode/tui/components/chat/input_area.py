@@ -476,7 +476,7 @@ class MessageInput(Static):
         #: 0 = editing current line; k>0 = showing history[-k]
         self._history_browse_index: int = 0
         self._history_draft: str = ""
-        self._history_applying: bool = False
+        self._history_applying: int = 0
         self._persistent_history: InputHistoryStore | None = None
         self._persistent_session_id: str = ""
         self._ghost_text: str = ""
@@ -651,12 +651,9 @@ class MessageInput(Static):
         else:
             return False
 
-        self._history_applying = True
-        try:
-            ta.text = chosen
-            self._cursor_to_end(ta)
-        finally:
-            self._history_applying = False
+        self._history_applying += 1
+        ta.text = chosen
+        self._cursor_to_end(ta)
         self._dismiss_smart_suggestions()
         return True
 
@@ -669,12 +666,9 @@ class MessageInput(Static):
         except Exception:
             return False
         current = ta.text or ""
-        self._history_applying = True
-        try:
-            ta.text = current + self._ghost_text
-            self._cursor_to_end(ta)
-        finally:
-            self._history_applying = False
+        self._history_applying += 1
+        ta.text = current + self._ghost_text
+        self._cursor_to_end(ta)
         self._dismiss_smart_suggestions()
         return True
 
@@ -696,12 +690,9 @@ class MessageInput(Static):
             text_input.cursor_position = (last_line, last_col)
 
     def _set_input_text_for_history(self, text_input: TextArea, content: str) -> None:
-        self._history_applying = True
-        try:
-            text_input.text = content
-            self._cursor_to_end(text_input)
-        finally:
-            self._history_applying = False
+        self._history_applying += 1
+        text_input.text = content
+        self._cursor_to_end(text_input)
 
     def _history_browse_older(self, text_input: TextArea) -> None:
         if not self._input_history:
@@ -780,11 +771,14 @@ class MessageInput(Static):
 
     @on(TextArea.Changed, "#text_input")
     def _on_text_input_changed(self, _event: TextArea.Changed) -> None:
-        if not self._history_applying and self._history_browse_index:
+        was_applying = self._history_applying > 0
+        if was_applying:
+            self._history_applying -= 1
+        elif self._history_browse_index:
             self._history_browse_index = 0
             self._history_draft = ""
         self._sync_completion_panels()
-        if not self._history_applying:
+        if not was_applying:
             self._update_smart_suggestions()
 
     def _get_working_directory_path(self) -> Path:
@@ -977,16 +971,13 @@ class MessageInput(Static):
             new_q = displays[self._at_index]
         new_line = line[:at_col] + "@" + new_q + line[col:]
         lines[row] = new_line
-        self._history_applying = True
-        try:
-            ta.text = "\n".join(lines)
-            new_col = at_col + 1 + len(new_q)
-            if hasattr(ta, "cursor_location"):
-                ta.cursor_location = (row, new_col)
-            else:
-                ta.cursor_position = (row, new_col)
-        finally:
-            self._history_applying = False
+        self._history_applying += 1
+        ta.text = "\n".join(lines)
+        new_col = at_col + 1 + len(new_q)
+        if hasattr(ta, "cursor_location"):
+            ta.cursor_location = (row, new_col)
+        else:
+            ta.cursor_position = (row, new_col)
         self._sync_completion_panels()
 
     def _confirm_at_selection(self) -> None:
@@ -1009,15 +1000,12 @@ class MessageInput(Static):
         at_col, _q = parsed
         new_line = line[:at_col] + line[col:]
         lines[row] = new_line
-        self._history_applying = True
-        try:
-            ta.text = "\n".join(lines)
-            if hasattr(ta, "cursor_location"):
-                ta.cursor_location = (row, at_col)
-            else:
-                ta.cursor_position = (row, at_col)
-        finally:
-            self._history_applying = False
+        self._history_applying += 1
+        ta.text = "\n".join(lines)
+        if hasattr(ta, "cursor_location"):
+            ta.cursor_location = (row, at_col)
+        else:
+            ta.cursor_position = (row, at_col)
         try:
             self.add_attachments([FileAttachment.from_path(abs_path)])
         except Exception:

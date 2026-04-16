@@ -739,7 +739,7 @@ def _expand_windows_cmd(command: str) -> str:
         return f"where {m.group('name')}"
 
     if re.fullmatch(r"uname(\s.*)?", stripped, flags=re.IGNORECASE):
-        return "ver & echo %OS%"
+        return "ver"
 
     out = re.sub(r"\s+2>/dev/null\s*$", " 2>nul", stripped, flags=re.IGNORECASE)
     if out != stripped:
@@ -850,6 +850,10 @@ def _expand_windows_powershell(command: str) -> str:
     m = re.fullmatch(r"which\s+(?P<name>\S+)", out, flags=re.IGNORECASE)
     if m:
         return f"Get-Command {m.group('name')} | Select-Object -ExpandProperty Source"
+
+    if re.fullmatch(r"uname(\s.*)?", out, flags=re.IGNORECASE):
+        return "[System.Environment]::OSVersion"
+
     return out
 
 

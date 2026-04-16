@@ -108,6 +108,9 @@ def resolve_provider_from_model(
         and model_lower.count("/") == 1
     ):
         provider_name = "openrouter"
+    # Copilot-prefixed models (e.g. copilot/gpt-4o, copilot/claude-sonnet-4)
+    elif model_lower.startswith("copilot/"):
+        provider_name = "copilot"
     # 基础 Provider 类型推断
     elif "gpt" in model_lower or "o1" in model_lower or "o3" in model_lower:
         provider_name = "openai"

@@ -719,14 +719,15 @@ def _run_browser_command(
             node_bin_candidates.append(fallback_node_bin)
 
         existing_path = browser_env.get("PATH", "")
-        path_parts = [p for p in existing_path.split(":") if p]
-        candidate_dirs = node_bin_candidates + [p for p in _SANE_PATH.split(":") if p]
+        pathsep = os.pathsep
+        path_parts = [p for p in existing_path.split(pathsep) if p]
+        candidate_dirs = node_bin_candidates + [p for p in _SANE_PATH.split(pathsep) if p]
 
         for part in reversed(candidate_dirs):
             if os.path.isdir(part) and part not in path_parts:
                 path_parts.insert(0, part)
 
-        browser_env["PATH"] = ":".join(path_parts)
+        browser_env["PATH"] = pathsep.join(path_parts)
         browser_env["AGENT_BROWSER_SOCKET_DIR"] = task_socket_dir
         
         # Use temp files for stdout/stderr instead of pipes.

@@ -60,6 +60,10 @@ class HelpScreen(Screen):
         ("question_mark", "pop_screen", "Close"),
     ]
 
+    def render(self) -> str:
+        """Screen-level render — return empty so child widgets handle display."""
+        return ""
+
     def compose(self):
         """Compose the help screen UI."""
         help_text = """

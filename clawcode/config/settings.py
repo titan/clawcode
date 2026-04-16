@@ -476,6 +476,10 @@ class Settings(BaseSettings):
             "anthropic": Provider(),
             "openai": Provider(),
             "gemini": Provider(),
+            "copilot": Provider(
+                disabled=True,
+                models=["gpt-4o", "gpt-4.1", "gpt-4o-mini", "o4-mini", "o3-mini"],
+            ),
         }
     )
 

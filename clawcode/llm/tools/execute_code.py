@@ -488,14 +488,35 @@ def _blocked_open(*_args, **_kwargs):
         "or switch to kind='shell' and use the 'write' tool."
     )
 
-def _blocked_import(*_args, **_kwargs):
-    raise ImportError("__import__ is blocked in execute_code sandbox")
+_real_import = __import__
+
+_SAFE_MODULES = frozenset({
+    "json", "re", "math", "cmath", "datetime", "time", "calendar",
+    "collections", "itertools", "functools", "operator",
+    "string", "copy", "pprint", "textwrap", "difflib",
+    "typing", "dataclasses", "enum", "abc", "numbers",
+    "decimal", "fractions", "statistics", "random",
+    "uuid", "hashlib", "base64", "binascii", "struct",
+    "csv", "io", "pathlib", "glob", "fnmatch",
+    "unicodedata", "heapq", "bisect", "array",
+})
+
+def _safe_import(name, _globals=None, _locals=None, fromlist=(), level=0):
+    top = name.split(".")[0]
+    if top in _SAFE_MODULES:
+        return _real_import(name, _globals, _locals, fromlist, level)
+    raise ImportError(
+        "Import of '" + name + "' is not allowed in execute_code sandbox. "
+        "Allowed modules: " + ", ".join(sorted(_SAFE_MODULES)) + ". "
+        "For system access use bash/terminal helpers; "
+        "for file operations use read_file/write_file helpers."
+    )
 
 def _blocked_input(*_args, **_kwargs):
     raise RuntimeError("input() is blocked in execute_code sandbox")
 
 safe_builtins = {
-    "__import__": _blocked_import,
+    "__import__": _safe_import,
     "open": _blocked_open,
     "input": _blocked_input,
     "abs": abs,
@@ -523,6 +544,7 @@ safe_builtins = {
     "str": str,
     "sum": sum,
     "tuple": tuple,
+    "type": type,
     "zip": zip,
 }
 
@@ -749,8 +771,10 @@ class ExecuteCodeTool(BaseTool):
                 "Unified execution entrypoint (Hermes-aligned). "
                 "kind='shell' runs a shell command in the session shell. "
                 "kind='python' runs Python in a subprocess with a best-effort sandbox: "
-                "built-in open() is blocked (no direct file read/write); __import__ and "
-                "input() are blocked. To create or edit project files, use the top-level "
+                "built-in open() and input() are blocked. "
+                "Imports are restricted to safe standard-library modules "
+                "(json, re, math, datetime, collections, itertools, functools, pathlib, etc.). "
+                "To create or edit project files, use the top-level "
                 "`write` tool or kind='shell', or from Python call only the provided "
                 "helpers write_file(path, content) and read_file(path) (RPC to the host). "
                 "Do not use open() in kind='python'."
@@ -763,15 +787,16 @@ class ExecuteCodeTool(BaseTool):
                         "enum": ["shell", "python"],
                         "description": (
                             "'shell' for a shell command; 'python' for sandboxed Python "
-                            "(no open/import/input; use write/bash or write_file/read_file "
-                            "helpers for files)."
+                            "(no open/input; safe stdlib imports allowed; "
+                            "use write_file/read_file helpers for file access)."
                         ),
                     },
                     "code": {
                         "type": "string",
                         "description": (
                             "Shell command when kind=shell. When kind=python: Python source; "
-                            "avoid open() and imports—use write_file/read_file for file access."
+                            "safe stdlib imports (json, re, math, datetime, etc.) are allowed; "
+                            "avoid open()—use write_file/read_file for file access."
                         ),
                     },
                     "timeout_s": {
@@ -794,22 +819,16 @@ class ExecuteCodeTool(BaseTool):
 
         # Normalize parameter aliases: some LLMs use "type" instead of "kind",
         # or "command"/"source" instead of "code".
-        kind = (
-            params.get("kind")
-            or params.get("type")
-            or params.get("mode")
-            or ""
-        )
-        kind = str(kind).strip().lower()
+        # Handle None values explicitly to avoid "none" string.
+        def _get_str(*keys: str) -> str:
+            for k in keys:
+                v = params.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            return ""
 
-        code = (
-            params.get("code")
-            or params.get("command")
-            or params.get("source")
-            or params.get("script")
-            or params.get("content")
-            or ""
-        )
+        kind = _get_str("kind", "type", "mode").lower()
+        code = _get_str("code", "command", "source", "script", "content")
 
         timeout_s = _coerce_timeout_s(params.get("timeout_s", 60), default=60.0)
 

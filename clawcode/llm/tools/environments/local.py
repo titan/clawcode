@@ -236,6 +236,10 @@ class LocalEnvironment(PersistentShellMixin, BaseEnvironment):
                 try:
                     if _IS_WINDOWS:
                         proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
                     else:
                         os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 except (ProcessLookupError, PermissionError):

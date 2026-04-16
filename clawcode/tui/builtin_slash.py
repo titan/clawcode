@@ -411,6 +411,10 @@ SLASH_AUTOCOMPLETE_EXTRA: list[tuple[str, str]] = [
         "Generate a one-shot alternative implementation plan (ARC planner)",
     ),
     (
+        "spec",
+        "Generate spec/tasks/checklist for complex tasks, execute after approval",
+    ),
+    (
         "claw",
         "Enable Claw agent mode (Claw branch / run_claw_turn) or show status",
     ),
@@ -547,6 +551,7 @@ BuiltinSlashUiAction = Literal[
     "open_display_mode",
     "exit_app",
     "show_help_screen",
+    "show_experience_dashboard",
     "open_clawcode_config_external",
     "enable_claw_mode",
 ]

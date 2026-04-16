@@ -142,6 +142,8 @@ class _CronRegistry:
                         code=job.code_or_command,
                         timeout_s=float(job.timeout_s),
                         cwd=context.working_directory,
+                        session_id=context.session_id or "",
+                        permissions=permissions,
                     )
 
             async with self._lock:

@@ -2928,11 +2928,11 @@ async def handle_builtin_slash(
         return BuiltinSlashOutcome(kind="assistant_message", assistant_text=result)
 
     if head == "experience-dashboard":
-        svc = LearningService(settings)
         raw_tokens = shlex.split(tail or "")
         tokens = set(raw_tokens)
         as_json = "--json" in tokens
         no_alerts = "--no-alerts" in tokens
+        use_tui = "--tui" in tokens
         domain: str | None = None
         idx = 0
         while idx < len(raw_tokens):
@@ -2940,6 +2940,14 @@ async def handle_builtin_slash(
                 idx += 1
                 domain = str(raw_tokens[idx]).strip().lower() or None
             idx += 1
+        if use_tui:
+            return BuiltinSlashOutcome(
+                kind="assistant_message",
+                assistant_text="",
+                ui_action="show_experience_dashboard",
+                routing_meta={"dashboard_domain": domain},
+            )
+        svc = LearningService(settings)
         snap = await asyncio.to_thread(svc.experience_dashboard_query, include_alerts=not no_alerts, domain=domain)
         if as_json:
             return BuiltinSlashOutcome(

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 from ...integrations.git_workspace import git_restore_tracked_paths_to_head
 from ...llm.plan_store import PlanBundle, PlanTaskItem
+from ...llm.spec_store import SpecBundle
 from ...llm.plan_tasks import compose_task_execution_prompt, split_plan_to_tasks
 from ...llm.ecc_planner_prompt import ECC_PLANNER_MD
 from ..builtin_slash import BUILTIN_SLASH_NAMES, BuiltinSlashContext, parse_slash_line
@@ -319,6 +320,7 @@ class SessionRunState:
     # HUD ???????: last completed user-message turn (shown while idle; overwritten each run).
     last_turn_duration_str: str | None = None
     is_plan_run: bool = False
+    is_spec_run: bool = False
     is_claw_run: bool = False
     plan_user_request: str = ""
     plan_artifact_scope: str = ""
@@ -336,6 +338,14 @@ class PlanSessionState:
     last_plan_text: str = ""
     last_user_request: str = ""
     bundle: PlanBundle | None = None
+
+
+@dataclass
+class SpecSessionState:
+    session_id: str
+    mode: str = "normal"  # normal | spec_pending | spec_ready | spec_executing | spec_verifying | spec_refining
+    bundle: "SpecBundle | None" = None
+    current_task_index: int = 0
 
 
 @dataclass
@@ -413,6 +423,8 @@ class ChatScreen(Screen):
         self._session_ui: dict[str, SessionUiState] = {}
         self._plan_state: dict[str, PlanSessionState] = {}
         self._plan_store: Any = None
+        self._spec_state: dict[str, SpecSessionState] = {}
+        self._spec_store: Any = None
         self._processing_timer = None
         self._deep_loop_monitor_timer = None  # dedicated monitor; runs between iterations
         self._last_build_watchdog_check: float = 0.0
@@ -632,6 +644,179 @@ class ChatScreen(Screen):
         plan_state.mode = "plan_ready"
         self._sync_hud_todos_from_plan(plan_state)
         self._refresh_plan_panel(session_id)
+
+    def _render_spec_reply(self, text: str) -> None:
+        """Render a reply message for /spec commands."""
+        if not self.current_session_id:
+            return
+        message_list = self._ensure_message_list(self.current_session_id)
+        message_list.display = True
+        message_list.add_user_message("/spec")
+        message_list.start_assistant_message()
+        message_list.update_content(text)
+        message_list.finalize_message()
+
+    def _get_spec_state(self, session_id: str, *, create: bool = True) -> SpecSessionState | None:
+        if not session_id:
+            return None
+        state = self._spec_state.get(session_id)
+        if state is None and create:
+            state = SpecSessionState(session_id=session_id)
+            self._spec_state[session_id] = state
+        return state
+
+    def _get_spec_store(self):
+        if self._spec_store is None:
+            from ...llm.spec_store import SpecStore
+            self._spec_store = SpecStore(working_directory=self._get_cwd())
+        return self._spec_store
+
+    def _hydrate_spec_state_from_disk(self, session_id: str) -> None:
+        if not session_id:
+            return
+        store = self._get_spec_store()
+        spec_state = self._get_spec_state(session_id, create=True)
+        if spec_state is None or spec_state.bundle is not None:
+            return
+        bundle = store.find_latest_bundle_for_session(session_id)
+        if bundle is None:
+            return
+        spec_state.bundle = bundle
+        spec_state.mode = "spec_ready"
+        spec_state.current_task_index = bundle.execution.current_task_index
+
+    def _handle_spec_slash(
+        self,
+        raw_content: str,
+        *,
+        attachments: list[FileAttachment] | None = None,
+        input_widget: MessageInput | None = None,
+    ) -> bool:
+        """Handle /spec slash commands. Returns True if consumed."""
+        text = raw_content.strip()
+        if not text.startswith("/spec"):
+            return False
+        sid = self.current_session_id
+        if not sid:
+            return False
+
+        parts = text.split(None, 1)
+        sub = ""
+        user_req = ""
+        if len(parts) > 1:
+            rest = parts[1].strip()
+            sub_parts = rest.split(None, 1)
+            sub = sub_parts[0].lower() if sub_parts else ""
+            user_req = sub_parts[1].strip() if len(sub_parts) > 1 else ""
+
+        plan_state = self._get_plan_state(sid, create=False)
+        if plan_state and plan_state.mode not in ("normal", ""):
+            self._render_spec_reply("/spec is not available while /plan is active. Use `/plan off` first.")
+            return True
+        if self._claw_mode_enabled:
+            self._render_spec_reply("/spec is not available while Claw mode is active. Disable it first.")
+            return True
+
+        spec_state = self._get_spec_state(sid, create=True)
+        if spec_state is None:
+            return False
+
+        if sub in ("", "status"):
+            if spec_state.mode == "normal" or spec_state.bundle is None:
+                self._render_spec_reply("No active spec. Use `/spec <requirement>` to start.")
+            else:
+                mode = spec_state.mode
+                n_tasks = len(spec_state.bundle.tasks) if spec_state.bundle else 0
+                done = sum(1 for t in (spec_state.bundle.tasks or []) if t.status == "done")
+                self._render_spec_reply(f"Spec mode: **{mode}** | Tasks: {done}/{n_tasks} | Press `/spec show` for details.")
+            return True
+
+        if sub == "off":
+            spec_state.mode = "normal"
+            self._render_spec_reply("Spec mode deactivated.")
+            return True
+
+        if sub == "show":
+            if not spec_state.bundle:
+                self._render_spec_reply("No spec to show.")
+                return True
+            b = spec_state.bundle
+            msg = f"**Spec:** {b.user_request}\n\n"
+            msg += f"Tasks: {len(b.tasks)} | Checklist: {len(b.checklist)} | Mode: {spec_state.mode}\n\n"
+            msg += f"Spec file: `{b.spec_dir}/spec.md`"
+            self._render_spec_reply(msg)
+            return True
+
+        if sub == "approve":
+            if spec_state.mode != "spec_ready" or not spec_state.bundle:
+                self._render_spec_reply("No spec ready to approve. Generate one with `/spec <requirement>` first.")
+                return True
+            spec_state.mode = "spec_executing"
+            spec_state.bundle.approved_at = int(time.time())
+            self._get_spec_store().save_bundle(spec_state.bundle)
+            self._render_spec_reply(
+                "Spec approved! Starting execution. Tasks will be executed one by one.\n"
+                "Use `/spec next` to advance, `/spec verify` to check, `/spec off` to stop."
+            )
+            return True
+
+        if sub == "reject":
+            spec_state.mode = "normal"
+            spec_state.bundle = None
+            self._render_spec_reply("Spec rejected. Back to normal mode.")
+            return True
+
+        if sub == "verify":
+            if not spec_state.bundle or spec_state.mode not in ("spec_executing", "spec_refining"):
+                self._render_spec_reply("Nothing to verify. Execute tasks first.")
+                return True
+            spec_state.mode = "spec_verifying"
+            self._render_spec_reply("Starting verification... Agent will check each checklist item.")
+            return True
+
+        if sub == "next":
+            if spec_state.mode not in ("spec_executing",) or not spec_state.bundle:
+                self._render_spec_reply("Not in execution mode. Use `/spec approve` first.")
+                return True
+            spec_state.current_task_index += 1
+            spec_state.bundle.execution.current_task_index = spec_state.current_task_index
+            self._get_spec_store().save_bundle(spec_state.bundle)
+            tasks = spec_state.bundle.tasks
+            if spec_state.current_task_index < len(tasks):
+                t = tasks[spec_state.current_task_index]
+                self._render_spec_reply(f"Moving to **{t.id}: {t.title}** [{t.priority}]")
+            else:
+                self._render_spec_reply("All tasks completed! Use `/spec verify` to run final checks.")
+            return True
+
+        # Default: treat remaining text as requirement to spec — trigger agent run immediately (like /arc-plan)
+        requirement = user_req if user_req else sub
+        if not requirement:
+            self._render_spec_reply("Usage: `/spec <requirement description>` or `/spec status|show|approve|reject|verify|next|off`")
+            return True
+
+        spec_state.mode = "spec_pending"
+        spec_state.bundle = None
+        spec_state.current_task_index = 0
+        try:
+            if input_widget is not None and hasattr(input_widget, "clear"):
+                input_widget.clear()
+        except Exception:
+            pass
+        self._render_spec_reply(f"Generating spec for: **{requirement}**\nAgent will analyze the codebase in read-only mode...")
+
+        # Trigger agent run immediately — same pattern as /arc-plan
+        if input_widget is not None:
+            self._finalize_send_after_input(
+                display_content=f"/spec {requirement}",
+                raw_content_for_plan=requirement,
+                content_for_agent=requirement,
+                attachments=attachments or [],
+                input_widget=input_widget,
+                skip_plan_wrap=False,
+                force_spec_run=True,
+            )
+        return True
 
     def _sync_hud_todos_from_plan(self, plan_state: PlanSessionState | None) -> None:
         if not plan_state or not plan_state.bundle:
@@ -2242,11 +2427,15 @@ class ChatScreen(Screen):
             store.prune_expired()
             self._input_history_store = store
 
-            input_widget = self.query_one("#message_input_widget", MessageInput)
-            input_widget.bind_persistent_history(
-                store,
-                session_id=self.current_session_id or "",
-            )
+            for wid in ("#message_input_widget", "#claude_input", "#opencode_input"):
+                try:
+                    w = self.query_one(wid, MessageInput)
+                    w.bind_persistent_history(
+                        store,
+                        session_id=self.current_session_id or "",
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -2654,6 +2843,7 @@ class ChatScreen(Screen):
         response_artifact_subdir: str = "",
         build_task_index: int = -1,
         is_claw_run: bool = False,
+        is_spec_run: bool = False,
     ) -> None:
         run_state = self._get_run_state(session_id, create=True)
         if run_state is None or run_state.is_processing:
@@ -2678,6 +2868,7 @@ class ChatScreen(Screen):
         run_state.last_error = None
         run_state.has_unread_output = False
         run_state.is_plan_run = is_plan_run
+        run_state.is_spec_run = is_spec_run
         subdir = (response_artifact_subdir or "").strip()
         run_state.is_claw_run = is_claw_run
         run_state.response_artifact_subdir = subdir if not is_plan_run else ""
@@ -2773,14 +2964,17 @@ class ChatScreen(Screen):
         input_widget: MessageInput,
         skip_plan_wrap: bool = False,
         force_plan_run: bool = False,
+        force_spec_run: bool = False,
         plan_user_request_override: str = "",
         plan_artifact_scope: str = "",
         plan_routing_meta: dict[str, Any] | None = None,
         response_artifact_subdir: str = "",
     ) -> None:
-        """Archive awareness, clear input, apply /plan wrapping, start agent run."""
+        """Archive awareness, clear input, apply /plan or /spec wrapping, start agent run."""
         plan_mode_for_run = False
+        spec_mode_for_run = False
         plan_state = self._get_plan_state(self.current_session_id or "", create=True)
+        spec_state = self._get_spec_state(self.current_session_id or "", create=False)
         eff_agent = content_for_agent
         claw_run = bool(getattr(self, "_claw_mode_enabled", False))
         if claw_run:
@@ -2788,6 +2982,15 @@ class ChatScreen(Screen):
                 try:
                     self.notify(
                         "Claw agent mode (/claw) conflicts with active /plan step. Run /plan off or /claw off first.",
+                        timeout=4,
+                    )
+                except Exception:
+                    pass
+                return
+            if spec_state and spec_state.mode == "spec_pending":
+                try:
+                    self.notify(
+                        "Claw agent mode (/claw) conflicts with active /spec step. Run /spec off first.",
                         timeout=4,
                     )
                 except Exception:
@@ -2829,8 +3032,19 @@ class ChatScreen(Screen):
                     f"User request:\n{raw_content_for_plan}"
                 )
 
+        # Handle /spec mode wrapping
+        if spec_state and spec_state.mode == "spec_pending":
+            spec_mode_for_run = True
+            from ...llm.spec_prompt import SPEC_GENERATION_SYSTEM_PROMPT
+            eff_agent = (
+                f"{SPEC_GENERATION_SYSTEM_PROMPT}\n\n"
+                f"User request:\n{raw_content_for_plan}\n"
+            )
+
         if force_plan_run and not claw_run:
             plan_mode_for_run = True
+        if force_spec_run and not claw_run:
+            spec_mode_for_run = True
 
         try:
             cap = self.query_one("#code_awareness_panel", CodeAwarenessPanel)
@@ -2863,6 +3077,7 @@ class ChatScreen(Screen):
             response_artifact_subdir=response_artifact_subdir,
             build_task_index=-1,
             is_claw_run=claw_run,
+            is_spec_run=spec_mode_for_run,
         )
 
     def _build_builtin_slash_context(self) -> BuiltinSlashContext:
@@ -3457,6 +3672,16 @@ class ChatScreen(Screen):
                     outcome.assistant_text or "Help opened. Shortcut: **F1** / **Ctrl+H**."
                 )
                 outcome.ui_action = None
+            if outcome.ui_action == "show_experience_dashboard":
+                domain = None
+                rm = getattr(outcome, "routing_meta", None)
+                if isinstance(rm, dict):
+                    domain = rm.get("dashboard_domain")
+                self.action_show_experience_dashboard(domain)
+                outcome.assistant_text = (
+                    outcome.assistant_text or "Experience Dashboard opened. Press **Q** to close, **R** to refresh."
+                )
+                outcome.ui_action = None
             if outcome.ui_action == "open_clawcode_config_external":
                 self._open_clawcode_json_external_editor()
                 outcome.assistant_text = (
@@ -3835,6 +4060,8 @@ class ChatScreen(Screen):
                 except Exception:
                     pass
                 return
+            if self._handle_spec_slash(raw_content, attachments=attachments, input_widget=input_widget):
+                return
             head, tail = parse_slash_line(raw_content)
             clawteam_ns = _parse_clawteam_namespace_slash(raw_content)
             if clawteam_ns is not None:
@@ -3997,7 +4224,7 @@ class ChatScreen(Screen):
         """
         try:
             run_state = self._get_run_state(session_id, create=False)
-            plan_mode_for_run = bool(run_state and run_state.is_plan_run)
+            plan_mode_for_run = bool(run_state and (run_state.is_plan_run or run_state.is_spec_run))
             is_claw_branch = bool(run_state and run_state.is_claw_run)
             if is_claw_branch:
                 from ...llm.claw import ClawAgent
@@ -4768,6 +4995,12 @@ class ChatScreen(Screen):
         from .help import HelpScreen
 
         self.app.push_screen(HelpScreen())
+
+    def action_show_experience_dashboard(self, domain: str | None = None) -> None:
+        """Show experience dashboard screen."""
+        from .experience_dashboard import ExperienceDashboardScreen
+
+        self.app.push_screen(ExperienceDashboardScreen(self.settings, domain=domain))
 
     def set_display_mode(self, mode: str) -> None:
         """Called by the App when user switches display mode."""
