@@ -257,7 +257,7 @@ flowchart LR
 
 **价值**：系统不是只“会做一次”，而是能在反馈中持续优化下一次。
 
-### 5) Code Awareness：编码感知与轨迹可视化
+### 5) Code Awareness：编码感知与轨迹可视化 (这一部分能力仍需完善)
 
 在 TUI 中，ClawCode 支持代码感知能力（Code Awareness）：
 
