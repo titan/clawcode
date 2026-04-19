@@ -2,6 +2,11 @@
 
 ClawCode is a terminal-native AI coding assistant built with a modular, layered architecture.
 
+## Product Perspective
+<p align="center">
+<img width="676" height="368" alt="Generated_image" src="https://github.com/user-attachments/assets/45741c3e-b8b4-45df-86a3-00dec3b86f8a" />
+</p>
+
 ## System Overview
 
 ```
