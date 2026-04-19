@@ -246,7 +246,7 @@ ClawCode 的会话与消息在本地持久化，不是一次性对话。
 ### 4) ECAP闭环学习与自进化：
 
 ClawCode 将“经验”作为第一等公民，并提出ECAP（“经验胶囊”）概念，不只存结论，更存可迁移的经验结构：
-<img width="2730" height="1535" alt="ECAP技术示例" src="https://github.com/user-attachments/assets/099277b5-4d02-4669-9cc0-260efc8bc79b" />
+<img width="1800" height="1000" alt="ECAP技术示例" src="https://github.com/user-attachments/assets/099277b5-4d02-4669-9cc0-260efc8bc79b" />
 
 - **Experience**：表示为目标与结果间gap的经验函数，从“目标与结果 gap 的解决过程”中抽取的可学习函数，并用目标与结果间的 gap 作为改进驱动，维度经验对象分别包括：model_experience、agent_experience、skill_experience、team_experience。
 - **ECAP**（Experience Capsule）：个人/任务级经验胶囊，表示可演化的三元组知识结构：(Instinct, Experience, Skill)
