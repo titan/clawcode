@@ -2,6 +2,10 @@
 
 ClawCode features a unique experience-based learning framework that turns development data into reusable, evolvable knowledge.
 
+<p align="center">
+<img width="800" height="400" alt="ECAP技术示例" src="https://github.com/user-attachments/assets/099277b5-4d02-4669-9cc0-260efc8bc79b" />
+</p>
+
 ## Overview
 
 ```
