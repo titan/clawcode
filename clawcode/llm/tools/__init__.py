@@ -41,6 +41,14 @@ from ...claw_skills.skill_tools import (
 )
 from ...claw_search.session_search_tool import create_session_search_tool
 from ...claw_learning.experience_tools import create_experience_evolve_to_skills_tool
+from ...deepnote.tools import (
+    create_wiki_history_tool,
+    create_wiki_ingest_tool,
+    create_wiki_lint_tool,
+    create_wiki_link_tool,
+    create_wiki_orient_tool,
+    create_wiki_query_tool,
+)
 
 
 def get_builtin_tools(
@@ -99,6 +107,13 @@ def get_builtin_tools(
         create_skill_manage_tool(),
         create_experience_evolve_to_skills_tool(),
         create_session_search_tool(session_service=session_service, message_service=message_service),
+        # DeepNote wiki tools
+        create_wiki_orient_tool(),
+        create_wiki_ingest_tool(),
+        create_wiki_query_tool(),
+        create_wiki_lint_tool(),
+        create_wiki_link_tool(),
+        create_wiki_history_tool(),
     ]
     # 子代理工具：子代理不得再持有 Agent/Task，避免嵌套委托
     tools.append(

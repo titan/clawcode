@@ -18,6 +18,7 @@ from ..app import create_app
 from ..config.constants import ModelProvider
 from ..config.settings import load_settings
 from ..db import close_database, init_database
+from .saddle_commands import register_saddle_cli
 
 
 @click.group(invoke_without_command=True)
@@ -474,3 +475,6 @@ def experience_dashboard_command(cwd: Path | None, as_json: bool, no_alerts: boo
     click.echo(f"- enabled: {abx.get('enabled', False)}")
     click.echo(f"- delta: {abx.get('delta', 0.0)}")
     click.echo(f"- buckets: {abx.get('buckets', {})}")
+
+
+register_saddle_cli(cli)

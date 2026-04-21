@@ -97,6 +97,10 @@ desktop = [
 environments-docker = [
     "minisweagent",
 ]
+# Monorepo: spec + designteam + clawteam pipeline (``clawcode saddle run``). Path invalid on PyPI; publish saddle separately for releases.
+saddle = [
+    "saddle @ file:../saddle",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -110,6 +114,8 @@ dev = [
 clawcode = "clawcode.cli.commands:cli"
 clawcode-autonomous-cycle = "clawcode.learning.autonomous_cycle_cli:main"
 clawcode-apply-team-round = "clawcode.learning.apply_team_round_cli:main"
+# Same as ``saddle`` from the ``saddle`` package after ``pip install -e ".[saddle]"`` (Typer CLI).
+saddle = "clawcode.cli.saddle_shim:main"
 
 [project.urls]
 Homepage = "https://github.com/clawcode-ai/clawcode"
@@ -190,5 +196,6 @@ module = [
     "clawcode_performance",
     "mss.*",
     "pyautogui.*",
+    "saddle.*",
 ]
 ignore_missing_imports = true

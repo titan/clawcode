@@ -415,6 +415,10 @@ SLASH_AUTOCOMPLETE_EXTRA: list[tuple[str, str]] = [
         "Generate spec/tasks/checklist for complex tasks, execute after approval",
     ),
     (
+        "saddle",
+        "Run Saddle pipeline in-session (spec→designteam→clawteam); `/saddle --help` for args",
+    ),
+    (
         "claw",
         "Enable Claw agent mode (Claw branch / run_claw_turn) or show status",
     ),
@@ -554,6 +558,7 @@ BuiltinSlashUiAction = Literal[
     "show_experience_dashboard",
     "open_clawcode_config_external",
     "enable_claw_mode",
+    "run_saddle_pipeline",
 ]
 
 

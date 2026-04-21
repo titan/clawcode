@@ -731,6 +731,24 @@ class Agent:
                 )
 
             history = await self._message_service.list_by_session(session_id)
+            # Optional DeepNote auto-orient context injection.
+            try:
+                dcfg = getattr(self._settings, "deepnote", None)
+                if dcfg and bool(getattr(dcfg, "enabled", False)) and bool(getattr(dcfg, "auto_orient", False)):
+                    from ..deepnote.wiki_store import WikiStore
+
+                    store = WikiStore.from_settings(self._settings)
+                    if store.exists():
+                        stats = store.get_stats()
+                        orient_hint = (
+                            "\n\n[DeepNote auto-orient]\n"
+                            f"wiki_root={stats.get('root','')}\n"
+                            f"total_pages={stats.get('total_pages',0)}\n"
+                            "For wiki tasks, call wiki_orient first, then wiki_query/wiki_ingest/wiki_lint as needed."
+                        )
+                        content = (content or "") + orient_hint
+            except Exception:
+                pass
 
             # Auto-compact: summarize early messages when approaching context limits.
             history = await self._auto_compact_history(session_id, history)

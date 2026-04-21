@@ -349,6 +349,20 @@ class SpecSessionState:
 
 
 @dataclass
+class SaddleSessionState:
+    session_id: str
+    mode: str = "idle"  # idle | spec_done | design_running | develop_running | completed | failed
+    requirement: str = ""
+    mode_name: str = "default"
+    pipeline_session_id: str = ""
+    set_items: list[str] = field(default_factory=list)
+    spec_summary: str = ""
+    spec_dir: str = ""
+    last_design_output: str = ""
+    error: str = ""
+
+
+@dataclass
 class SessionUiState:
     session_id: str
     message_list: MessageList | None = None
@@ -425,6 +439,7 @@ class ChatScreen(Screen):
         self._plan_store: Any = None
         self._spec_state: dict[str, SpecSessionState] = {}
         self._spec_store: Any = None
+        self._saddle_state: dict[str, SaddleSessionState] = {}
         self._processing_timer = None
         self._deep_loop_monitor_timer = None  # dedicated monitor; runs between iterations
         self._last_build_watchdog_check: float = 0.0
@@ -664,6 +679,127 @@ class ChatScreen(Screen):
             state = SpecSessionState(session_id=session_id)
             self._spec_state[session_id] = state
         return state
+
+    def _get_saddle_state(self, session_id: str, *, create: bool = True) -> SaddleSessionState | None:
+        if not session_id:
+            return None
+        state = self._saddle_state.get(session_id)
+        if state is None and create:
+            state = SaddleSessionState(session_id=session_id)
+            self._saddle_state[session_id] = state
+        return state
+
+    def _start_saddle_pipeline(self, session_id: str, payload: dict[str, Any]) -> None:
+        state = self._get_saddle_state(session_id, create=True)
+        if state is None:
+            return
+        requirement = str(payload.get("requirement") or "").strip()
+        mode_name = str(payload.get("mode_name") or "default").strip() or "default"
+        set_items_raw = payload.get("set_items")
+        set_items = [str(x) for x in set_items_raw] if isinstance(set_items_raw, list) else []
+        sid_override = str(payload.get("session_id_override") or "").strip()
+        pipeline_sid = sid_override or session_id
+        if not requirement:
+            raise ValueError("missing requirement for /saddle")
+
+        from saddle.modes.resolver import resolve_mode
+        from saddle.orchestrator.team_service import TeamOrchestrationOptions, TeamService
+        from saddle.spec.service import SpecService
+
+        root = Path((self.settings.working_directory or ".")).expanduser().resolve()
+        resolved = resolve_mode(str(root), mode_name=mode_name, overrides=set_items or None)
+        spec_svc = SpecService(working_directory=str(root))
+        team_svc = TeamService(project_root=root)
+
+        bundle = spec_svc.create_bundle(requirement, session_id=pipeline_sid)
+        spec_summary = (bundle.spec_markdown or "")[:400]
+        content = requirement
+        if spec_summary:
+            content += f"\n\nSpec summary:\n{spec_summary}"
+        design_result = team_svc.orchestrate(
+            "designteam",
+            content,
+            session_id=pipeline_sid,
+            options=TeamOrchestrationOptions(
+                selection_strategy=resolved.agent_selection.strategy,
+                thresholds=resolved.thresholds,
+                prompt_profile=resolved.design.prompt_profile,
+                custom_roles=resolved.agent_selection.custom_roles,
+                force_deep_loop=resolved.design.deep_loop,
+                force_max_iters=resolved.design.max_iters,
+            ),
+        )
+
+        state.mode = "design_running"
+        state.requirement = requirement
+        state.mode_name = mode_name
+        state.pipeline_session_id = pipeline_sid
+        state.set_items = set_items
+        state.spec_summary = spec_summary
+        state.spec_dir = bundle.spec_dir
+        state.last_design_output = ""
+        state.error = ""
+
+        self._start_agent_run(
+            session_id=session_id,
+            display_content=f"[saddle/designteam] {requirement[:80]}",
+            content_for_agent=design_result.prompt,
+            attachments=None,
+            is_plan_run=False,
+            is_claw_run=False,
+        )
+
+    def _continue_saddle_pipeline_if_needed(self, session_id: str) -> None:
+        state = self._get_saddle_state(session_id, create=False)
+        if state is None:
+            return
+        run_state = self._get_run_state(session_id, create=False)
+        if run_state is not None and run_state.is_processing:
+            return
+        if state.mode != "design_running":
+            return
+        try:
+            from saddle.modes.resolver import resolve_mode
+            from saddle.orchestrator.team_service import TeamOrchestrationOptions, TeamService
+
+            root = Path((self.settings.working_directory or ".")).expanduser().resolve()
+            resolved = resolve_mode(str(root), mode_name=state.mode_name, overrides=state.set_items or None)
+            team_svc = TeamService(project_root=root)
+            content = state.requirement
+            if state.spec_summary:
+                content += f"\n\nSpec summary:\n{state.spec_summary}"
+            if state.last_design_output.strip():
+                content += f"\n\nDesign output summary:\n{state.last_design_output[:600]}"
+            develop_result = team_svc.orchestrate(
+                "clawteam",
+                content,
+                session_id=state.pipeline_session_id,
+                options=TeamOrchestrationOptions(
+                    selection_strategy=resolved.agent_selection.strategy,
+                    thresholds=resolved.thresholds,
+                    prompt_profile=resolved.develop.prompt_profile,
+                    custom_roles=resolved.agent_selection.custom_roles,
+                    force_deep_loop=resolved.develop.deep_loop,
+                    force_max_iters=resolved.develop.max_iters,
+                ),
+            )
+            state.mode = "develop_running"
+            self._start_agent_run(
+                session_id=session_id,
+                display_content=f"[saddle/clawteam] {state.requirement[:80]}",
+                content_for_agent=develop_result.prompt,
+                attachments=None,
+                is_plan_run=False,
+                is_claw_run=False,
+            )
+        except Exception as e:
+            state.mode = "failed"
+            state.error = str(e)
+            message_list = self._ensure_message_list(session_id)
+            message_list.display = self.current_session_id == session_id
+            message_list.start_assistant_message()
+            message_list.update_content(f"**/saddle failed (develop stage):** {e}")
+            message_list.finalize_message()
 
     def _get_spec_store(self):
         if self._spec_store is None:
@@ -2015,6 +2151,7 @@ class ChatScreen(Screen):
         run_state = self._session_runs.pop(session_id, None)
         if run_state and run_state.task and not run_state.task.done():
             run_state.task.cancel()
+        self._saddle_state.pop(session_id, None)
 
     def _focus_active_input(self) -> None:
         """Focus whichever input widget is active for current display mode."""
@@ -3689,6 +3826,15 @@ class ChatScreen(Screen):
                     or "If an editor opened, edit **`.clawcode.json`** and save; then restart if needed."
                 )
                 outcome.ui_action = None
+            if outcome.ui_action == "run_saddle_pipeline":
+                try:
+                    self._start_saddle_pipeline(
+                        self.current_session_id,
+                        dict(getattr(outcome, "routing_meta", None) or {}),
+                    )
+                except Exception as e:
+                    outcome.assistant_text = f"**`/saddle` failed to start:** {e}"
+                outcome.ui_action = None
             if outcome.kind == "assistant_message":
                 if not pre_echoed:
                     input_widget.clear()
@@ -4294,6 +4440,7 @@ class ChatScreen(Screen):
             # (due to asyncio.sleep(0) yield points), so this finally-based call is the
             # reliable path — mirrors plan_task's _run_next_plan_task pattern below.
             self.call_later(lambda sid=session_id: self._continue_any_deep_loop_if_needed(sid))
+            self.call_later(lambda sid=session_id: self._continue_saddle_pipeline_if_needed(sid))
 
             if build_idx_snapshot >= 0:
                 await self._recover_stale_plan_task_after_run(session_id, build_idx_snapshot)
@@ -4641,6 +4788,22 @@ class ChatScreen(Screen):
                 msg = event.message
                 if msg:
                     message_list.finalize_message(msg)
+                    saddle_state = self._get_saddle_state(session_id, create=False)
+                    if saddle_state is not None:
+                        if saddle_state.mode == "design_running":
+                            saddle_state.last_design_output = msg.content or ""
+                        elif saddle_state.mode == "develop_running":
+                            saddle_state.mode = "completed"
+                            summary = (
+                                "# Saddle pipeline completed\n\n"
+                                f"- mode: `{saddle_state.mode_name}`\n"
+                                f"- session_id: `{saddle_state.pipeline_session_id}`\n"
+                                f"- spec_dir: `{saddle_state.spec_dir}`\n"
+                                "- stages: `spec -> designteam -> clawteam`\n"
+                            )
+                            message_list.start_assistant_message()
+                            message_list.update_content(summary)
+                            message_list.finalize_message()
                     if session_id in self._designteam_deep_loop_state:
                         self._designteam_last_response_store()[session_id] = msg.content or ""
                     elif session_id in self._clawteam_deep_loop_state:

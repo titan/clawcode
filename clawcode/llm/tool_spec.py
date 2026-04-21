@@ -297,6 +297,37 @@ _TOOL_SPEC_OVERRIDES: dict[str, dict[str, Any]] = {
         "side_effect": SideEffectLevel.NONE,
         "idempotent": True,
     },
+    "wiki_orient": {
+        "risk_level": RiskLevel.LOW,
+        "side_effect": SideEffectLevel.NONE,
+        "idempotent": True,
+    },
+    "wiki_query": {
+        "risk_level": RiskLevel.LOW,
+        "side_effect": SideEffectLevel.NONE,
+        "idempotent": True,
+    },
+    "wiki_lint": {
+        "risk_level": RiskLevel.LOW,
+        "side_effect": SideEffectLevel.NONE,
+        "idempotent": True,
+    },
+    "wiki_ingest": {
+        "risk_level": RiskLevel.MEDIUM,
+        "side_effect": SideEffectLevel.LOCAL_FS,
+        "idempotent": False,
+        "recoverable_errors": frozenset({ErrorCategory.VALIDATION, ErrorCategory.TRANSIENT}),
+    },
+    "wiki_link": {
+        "risk_level": RiskLevel.MEDIUM,
+        "side_effect": SideEffectLevel.LOCAL_FS,
+        "idempotent": False,
+    },
+    "wiki_history": {
+        "risk_level": RiskLevel.LOW,
+        "side_effect": SideEffectLevel.NONE,
+        "idempotent": True,
+    },
 }
 
 

@@ -33,6 +33,31 @@ def append_memory_snapshot_to_system_prompt(system_prompt: str) -> str:
         return system_prompt
 
 
+def append_deepnote_snapshot_to_system_prompt(system_prompt: str, settings: Settings) -> str:
+    """Append DeepNote guidance + orient snapshot when configured."""
+    try:
+        cfg = getattr(settings, "deepnote", None)
+        if not cfg or not bool(getattr(cfg, "enabled", False)):
+            return system_prompt
+        from ..deepnote.wiki_store import WikiStore
+
+        store = WikiStore.from_settings(settings)
+        if not store.exists():
+            return system_prompt
+        orient = store.get_orient_payload(log_entries=20)
+        block = (
+            "## DeepNote Knowledge Base\n\n"
+            "DeepNote is active. Prefer wiki_orient/wiki_ingest/wiki_query/wiki_lint/wiki_link/wiki_history "
+            "for knowledge-base workflows instead of ad-hoc file edits.\n"
+            f"- root: {orient.get('stats', {}).get('root', '')}\n"
+            f"- total_pages: {orient.get('stats', {}).get('total_pages', 0)}\n"
+            "\nStart wiki-related work by calling wiki_orient."
+        )
+        return (system_prompt.strip() + "\n\n" + block).strip()
+    except Exception:
+        return system_prompt
+
+
 @dataclass
 class CoderRuntimeBundle:
     """Everything needed to construct a coder :class:`~clawcode.llm.agent.Agent` or :class:`~clawcode.llm.claw.ClawAgent`."""
@@ -187,6 +212,7 @@ def build_coder_runtime(
         project_root=wd,
     ) + get_claw_mode_system_suffix()
     system_prompt = append_memory_snapshot_to_system_prompt(system_prompt)
+    system_prompt = append_deepnote_snapshot_to_system_prompt(system_prompt, settings=settings)
 
     claw_agent_kwargs = claw_agent_kwargs_from_settings(settings)
 
@@ -206,5 +232,6 @@ def build_coder_runtime(
 __all__ = [
     "CoderRuntimeBundle",
     "append_memory_snapshot_to_system_prompt",
+    "append_deepnote_snapshot_to_system_prompt",
     "build_coder_runtime",
 ]

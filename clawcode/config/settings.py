@@ -29,6 +29,7 @@ from .constants import (
     MessageRole,
     ModelProvider,
 )
+from ..deepnote.wiki_config import DeepNoteConfig
 
 
 class MCPServer(BaseModel):
@@ -634,6 +635,8 @@ class Settings(BaseSettings):
 
     # Closed-loop optimization knobs
     closed_loop: ClosedLoopConfig = Field(default_factory=ClosedLoopConfig)
+    # DeepNote wiki (llm-wiki compatible, improved)
+    deepnote: DeepNoteConfig = Field(default_factory=DeepNoteConfig)
 
     # Debug
     debug: bool = False

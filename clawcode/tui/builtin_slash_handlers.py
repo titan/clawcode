@@ -4637,6 +4637,83 @@ async def handle_builtin_slash(
             ui_action="open_clawcode_config_external",
         )
 
+    if head == "saddle":
+        argv = shlex.split(tail or "")
+        if not argv or argv[0] in {"-h", "--help", "help"}:
+            text = (
+                "**`/saddle`** runs a local pipeline in this TUI session: "
+                "**spec -> designteam -> clawteam**.\n\n"
+                "Usage:\n"
+                "```text\n"
+                "/saddle <requirement> [--mode default] [--set key=value ...] [--session-id UUID]\n"
+                "```\n"
+                "Examples:\n"
+                "```text\n"
+                "/saddle Build an order management backend\n"
+                "/saddle \"Add JWT login\" --mode default --set agent_selection.strategy=balanced\n"
+                "```\n"
+            )
+            return BuiltinSlashOutcome(kind="assistant_message", assistant_text=text)
+
+        mode_name = "default"
+        session_id_override: str | None = None
+        set_items: list[str] = []
+        req_parts: list[str] = []
+        i = 0
+        while i < len(argv):
+            tok = argv[i]
+            if tok in {"--mode", "-m"}:
+                if i + 1 >= len(argv):
+                    return BuiltinSlashOutcome(
+                        kind="assistant_message",
+                        assistant_text="Usage error: `--mode` requires a value.",
+                    )
+                mode_name = argv[i + 1].strip() or "default"
+                i += 2
+                continue
+            if tok == "--session-id":
+                if i + 1 >= len(argv):
+                    return BuiltinSlashOutcome(
+                        kind="assistant_message",
+                        assistant_text="Usage error: `--session-id` requires a value.",
+                    )
+                session_id_override = argv[i + 1].strip() or None
+                i += 2
+                continue
+            if tok == "--set":
+                if i + 1 >= len(argv):
+                    return BuiltinSlashOutcome(
+                        kind="assistant_message",
+                        assistant_text="Usage error: `--set` requires `key=value`.",
+                    )
+                set_items.append(argv[i + 1])
+                i += 2
+                continue
+            req_parts.append(tok)
+            i += 1
+
+        requirement = " ".join(req_parts).strip()
+        if not requirement:
+            return BuiltinSlashOutcome(
+                kind="assistant_message",
+                assistant_text="Usage: `/saddle <requirement> [--mode ...] [--set key=value ...]`",
+            )
+
+        return BuiltinSlashOutcome(
+            kind="assistant_message",
+            assistant_text=(
+                "Starting **Saddle pipeline** in-session: "
+                f"`spec -> designteam -> clawteam` (mode: `{mode_name}`)."
+            ),
+            ui_action="run_saddle_pipeline",
+            routing_meta={
+                "requirement": requirement,
+                "mode_name": mode_name,
+                "set_items": set_items,
+                "session_id_override": session_id_override,
+            },
+        )
+
     if head == "doctor":
         cfg_path = root / ".clawcode.json"
         cfg_ok = cfg_path.is_file()
