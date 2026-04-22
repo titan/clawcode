@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -50,6 +50,18 @@ class DomainConfig(BaseModel):
     custom_settings: dict[str, Any] = Field(default_factory=dict)
 
 
+class CompatibilityConfig(BaseModel):
+    target_format: Literal["deepnote", "obsidian", "notion", "logseq", "standard"] = "deepnote"
+    slugify_mode: Literal["strict", "unicode", "obsidian"] = "strict"
+    preserve_unicode_filenames: bool = False
+    wikilink_format: Literal["simple", "obsidian", "logseq"] = "simple"
+    enable_block_refs: bool = False
+    enable_link_aliases: bool = False
+    directory_structure: Literal["hierarchical", "flat", "custom"] = "hierarchical"
+    frontmatter_format: Literal["json", "yaml_list", "mixed"] = "json"
+    field_mapping: dict[str, str] = Field(default_factory=dict)
+
+
 class DeepNoteConfig(BaseModel):
     enabled: bool = False
     path: str = "~/deepnote"
@@ -61,4 +73,5 @@ class DeepNoteConfig(BaseModel):
     closed_loop: DeepNoteClosedLoopConfig = Field(default_factory=DeepNoteClosedLoopConfig)
     domains: dict[str, DomainConfig] = Field(default_factory=dict)
     active_domains: list[str] = Field(default_factory=list)
+    compatibility: CompatibilityConfig = Field(default_factory=CompatibilityConfig)
 

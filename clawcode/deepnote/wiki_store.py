@@ -12,6 +12,8 @@ import structlog
 
 from .wiki_config import DeepNoteConfig
 from .domain_registry import DomainRegistry
+from .formats import ObsidianAdapter, StandardMarkdownAdapter
+from .parsers import WikilinkParser
 from .processors.registry import ProcessorRegistry
 from .wiki_graph import WikiGraph
 from .wiki_history import WikiHistory
@@ -72,6 +74,7 @@ class WikiStore:
         self.history = WikiHistory(self.meta / "history")
         self.search_index = WikiSearchIndex(self.meta / "index", vector_store=config.search.vector_store)
         self._domain_processors: dict[str, Any] = {}
+        self._wikilink_parser = WikilinkParser()
         self._init_layout()
         self._load_domain_processors()
 
@@ -226,15 +229,68 @@ class WikiStore:
 
     def _extract_links(self, text: str) -> list[str]:
         links: list[str] = []
-        for m in _WIKILINK_RE.findall(text):
-            s = self.slugify(m)
+        mode = getattr(getattr(self.config, "compatibility", None), "wikilink_format", "simple")
+        if mode == "simple":
+            for m in _WIKILINK_RE.findall(text):
+                target = m.split("|", 1)[0].split("#", 1)[0]
+                s = self.slugify(target)
+                if s:
+                    links.append(s)
+            return sorted(set(links))
+        for item in self._wikilink_parser.parse(text):
+            if item.kind != "wikilink":
+                continue
+            s = self.slugify(item.target)
             if s:
                 links.append(s)
         return sorted(set(links))
 
-    @staticmethod
-    def slugify(name: str) -> str:
-        return slugify_name(name)
+    def slugify(self, name: str) -> str:
+        mode = str(getattr(getattr(self.config, "compatibility", None), "slugify_mode", "strict") or "strict")
+        return slugify_name(name, mode=mode)
+
+    def _build_frontmatter(self, *, title: str, now: str, page_type: str, tags: list[str], sources: list[str]) -> str:
+        compat = getattr(self.config, "compatibility", None)
+        target = str(getattr(compat, "target_format", "deepnote") or "deepnote")
+        payload = {
+            "title": title,
+            "created": now,
+            "updated": now,
+            "type": page_type,
+            "tags": tags,
+            "sources": sources,
+            "aliases": [],
+        }
+        if target == "obsidian":
+            return ObsidianAdapter().build_frontmatter(payload)
+        if target == "standard":
+            return StandardMarkdownAdapter().build_frontmatter(payload)
+        frontmatter_format = str(getattr(compat, "frontmatter_format", "json") or "json")
+        if frontmatter_format in {"yaml_list", "mixed"}:
+            tag_lines = "\n".join([f"  - {t}" for t in tags]) if tags else "  - concept"
+            source_lines = "\n".join([f"  - {s}" for s in sources]) if sources else "  - \"\""
+            return (
+                "---\n"
+                f"title: {title}\n"
+                f"created: {now}\n"
+                f"updated: {now}\n"
+                f"type: {page_type}\n"
+                "tags:\n"
+                f"{tag_lines}\n"
+                "sources:\n"
+                f"{source_lines}\n"
+                "---\n\n"
+            )
+        return (
+            "---\n"
+            f"title: {title}\n"
+            f"created: {now}\n"
+            f"updated: {now}\n"
+            f"type: {page_type}\n"
+            f"tags: {json.dumps(tags, ensure_ascii=False)}\n"
+            f"sources: {json.dumps(sources, ensure_ascii=False)}\n"
+            "---\n\n"
+        )
 
     def write_page(self, section: str, title: str, body: str, tags: list[str] | None = None, sources: list[str] | None = None) -> Path:
         tags = tags or ["concept"]
@@ -247,15 +303,12 @@ class WikiStore:
         except ValueError as exc:
             raise ValueError(f"refusing unsafe wiki path: {page}") from exc
         now = time.strftime("%Y-%m-%d")
-        frontmatter = (
-            "---\n"
-            f"title: {title}\n"
-            f"created: {now}\n"
-            f"updated: {now}\n"
-            f"type: {sec[:-1] if sec.endswith('s') else sec}\n"
-            f"tags: {json.dumps(tags, ensure_ascii=False)}\n"
-            f"sources: {json.dumps(sources, ensure_ascii=False)}\n"
-            "---\n\n"
+        frontmatter = self._build_frontmatter(
+            title=title,
+            now=now,
+            page_type=sec[:-1] if sec.endswith("s") else sec,
+            tags=tags,
+            sources=sources,
         )
         content = frontmatter + body.strip() + "\n"
         try:

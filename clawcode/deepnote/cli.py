@@ -8,6 +8,8 @@ from typing import Any
 
 from ..config.settings import Settings
 from .domain_registry import DomainRegistry
+from .exporters import ObsidianKnowledgeExporter
+from .formats import StandardMarkdownAdapter
 from .importers import ImporterRegistry
 from .learning_service import DeepNoteLearningService
 
@@ -75,11 +77,19 @@ def main(argv: list[str] | None = None) -> int:
     dimport.add_argument("source", type=str)
     dimport.add_argument("--title", type=str, default="")
     dimport.add_argument("--section", type=str, default="concepts")
-    dimport.add_argument("--format", choices=["auto", "text", "txt", "md", "csv", "tsv", "pdf"], default="auto")
+    dimport.add_argument(
+        "--format",
+        choices=["auto", "text", "txt", "md", "csv", "tsv", "pdf", "notion", "notion-md"],
+        default="auto",
+    )
     dimport.add_argument("--cwd", type=Path, default=Path.cwd())
     dval = domain_sub.add_parser("validate", help="Validate domain metadata files")
     dval.add_argument("domain_id", type=str)
     dval.add_argument("--cwd", type=Path, default=Path.cwd())
+    convert = sub.add_parser("convert", help="Convert/export DeepNote notes for other apps")
+    convert.add_argument("--format", choices=["obsidian", "standard"], default="obsidian")
+    convert.add_argument("--output", type=Path, required=True)
+    convert.add_argument("--cwd", type=Path, default=Path.cwd())
     _ = dlist
 
     args = parser.parse_args(argv)
@@ -91,6 +101,31 @@ def main(argv: list[str] | None = None) -> int:
         dry = bool(args.dry_run or (not args.apply))
         result = svc.run_learning_cycle(window_hours=max(1, int(args.window_hours)), dry_run=dry)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.cmd == "convert":
+        store = svc.store
+        fmt = str(args.format or "obsidian").lower()
+        out_dir = Path(args.output).expanduser().resolve()
+        if fmt == "obsidian":
+            exporter = ObsidianKnowledgeExporter()
+            result = asyncio.run(exporter.export_to_file(store, out_dir, {}))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        # standard markdown export
+        out_dir.mkdir(parents=True, exist_ok=True)
+        adapter = StandardMarkdownAdapter()
+        count = 0
+        for page in store.iter_wiki_pages():
+            text = page.read_text(encoding="utf-8")
+            body = text
+            if text.startswith("---\n"):
+                end = text.find("\n---", 4)
+                if end != -1:
+                    body = text[end + 4 :].lstrip("\n")
+            converted = adapter.convert_links(body)
+            (out_dir / page.name).write_text(converted, encoding="utf-8")
+            count += 1
+        print(json.dumps({"ok": True, "format": "standard", "exported_pages": count, "output_path": str(out_dir)}, ensure_ascii=False, indent=2))
         return 0
     if args.cmd == "domain":
         registry = DomainRegistry()
